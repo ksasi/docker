@@ -20,4 +20,4 @@ This section contains the following:
 * [Dockerizing a Node.js web app](nodejs_web_app.md)
 * [Dockerizing a Redis service](running_redis_service.md)
 * [Dockerizing an apt-cacher-ng service](apt-cacher-ng.md)
-* [Dockerizing applications: A 'Hello world'](/userguide/dockerizing)
+* [Dockerizing applications: A 'Hello world'](../userguide/dockerizing.md)

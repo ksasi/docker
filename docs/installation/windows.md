@@ -20,7 +20,7 @@ You install Docker using Docker Toolbox. Docker Toolbox includes the following D
 * Docker Engine for running the `docker` binary
 * Kitematic, the Docker GUI
 * a shell preconfigured for a Docker command-line environment
-* Oracle VM VirtualBox 
+* Oracle VM VirtualBox
 
 Because the Docker daemon uses Linux-specific kernel features, you can't run
 Docker natively in Windows. Instead, you must use `docker-machine` to create and attach to a Docker VM on your machine. This VM hosts Docker for you on your Windows system.
@@ -31,28 +31,29 @@ small ~24MB download, and boots in approximately 5s.
 
 ## Requirements
 
-Your machine must be running Windows 7.1, 8/8.1 or newer to run Docker. Windows 10 is not currently supported. To find out what version of Windows you have:
+Your machine must be running Windows 7, 8/8.1 or newer to run Docker. Windows 10 is not currently supported. To find out what version of Windows you have:
 
-1. Right click the Windows message and choose **System**. 
+1. Right click the Windows Start Menu and choose **System**.
 
-    ![Which version](/installation/images/win_ver.png)
-    
-    If you aren't using a supported version, you could consider upgrading your
-    operating system.
+    ![Which version](images/win_ver.png)
 
-2. Make sure your Windows system supports Hardware Virtualization Technology and that virtualization is enabled.
+    If you are using an unsupported version of Windows, you should consider
+    upgrading your operating system in order to try out Docker.
+
+2. Make sure your CPU supports [virtualization technology](https://en.wikipedia.org/wiki/X86_virtualization)
+and virtualization support is enabled in BIOS and recognized by Windows.
 
     #### For Windows 8 or 8.1
 
-	  Choose **Start > Task Manager** and navigate to the **Performance** tab.          
+	  Choose **Start > Task Manager** and navigate to the **Performance** tab.
 	  Under **CPU** you should see the following:
 
-      ![Release page](/installation/images/virtualization.png)
-    
+      ![Release page](images/virtualization.png)
+
     If virtualization is not enabled on your system, follow the manufacturer's instructions for enabling it.
-    
-    ### For Windows 7 
-    
+
+    #### For Windows 7
+
 	  Run the <a
 	  href="http://www.microsoft.com/en-us/download/details.aspx?id=592"
 	  target="_blank"> Microsoft® Hardware-Assisted Virtualization Detection
@@ -75,13 +76,13 @@ containers run directly on your localhost. This means you can address ports on a
 Docker container using standard localhost addressing such as `localhost:8000` or
 `0.0.0.0:8376`.
 
-![Linux Architecture Diagram](/installation/images/linux_docker_host.svg)
+![Linux Architecture Diagram](images/linux_docker_host.svg)
 
 In an Windows installation, the `docker` daemon is running inside a Linux virtual
 machine. You use the Windows Docker client to talk to the Docker host VM. Your
-Docker containers run inside this host. 
+Docker containers run inside this host.
 
-![Windows Architecture Diagram](/installation/images/win_docker_host.svg)
+![Windows Architecture Diagram](images/win_docker_host.svg)
 
 In Windows, the Docker host address is the address of the Linux VM. When you
 start the VM with `docker-machine` it is assigned an IP address. When you start
@@ -92,7 +93,7 @@ practice, work through the exercises on this page.
 ### Installation
 
 If you have VirtualBox running, you must shut it down before running the
-installer. 
+installer.
 
 1. Go to the [Docker Toolbox](https://www.docker.com/toolbox) page.
 
@@ -101,16 +102,16 @@ installer.
 3. Install Docker Toolbox by double-clicking the installer.
 
     The installer launches the "Setup - Docker Toolbox" dialog.
-    
-    ![Install Docker Toolbox](/installation/images/win-welcome.png)
+
+    ![Install Docker Toolbox](images/win-welcome.png)
 
 4. Press "Next" to install the toolbox.
 
     The installer presents you with options to customize the standard
     installation. By default, the standard Docker Toolbox installation:
-  
-    * installs executables for the Docker tools in `C:\Program Files\Docker Toolbox` 
-    * updates any existing VirtualBox installation 
+
+    * installs executables for the Docker tools in `C:\Program Files\Docker Toolbox`
+    * install VirtualBox; or updates any existing installation
     * adds a Docker Inc. folder to your program shortcuts
     * updates your `PATH` environment variable
     * adds desktop icons for the Docker Quickstart Terminal and Kitematic
@@ -120,23 +121,23 @@ installer.
 5. Press "Next" until you reach the "Ready to Install" page.
 
      The system prompts you for your password.
-   
-     ![Install](/installation/images/win-page-6.png)
-     
+
+     ![Install](images/win-page-6.png)
+
 6. Press "Install"  to continue with the installation.
 
      When it completes, the installer provides you with some information you can
      use to complete some common tasks.
-   
-     ![All finished](/installation/images/windows-finish.png)
-   
-7. Press "Close" to exit.
+
+     ![All finished](images/windows-finish.png)
+
+7. Press "Finish" to exit.
 
 ## Running a Docker Container
 
 To run a Docker container, you:
 
-* create a new (or start an existing) Docker virtual machine 
+* create a new (or start an existing) Docker virtual machine
 * switch your environment to your new VM
 * use the `docker` client to create, load, and manage containers
 
@@ -146,17 +147,17 @@ VirtualBox VM, it maintains its configuration between uses.
 There are several ways to use the installed tools, from the Docker Quickstart Terminal or
 [from your shell](#from-your-shell).
 
-### From the Docker Quickstart Terminal
+### Using the Docker Quickstart Terminal
 
 1. Find the Docker Quickstart Terminal icon on your Desktop and double-click to launch it.
 
     The application:
 
     * opens a terminal window
-    * creates a `default` if it doesn't exist, starts the VM if it does
+    * creates a `default` VM if it doesn't exist, and starts the VM after
     * points the terminal environment to this VM
 
-    Once the launch completes, you can run `docker` commands. 
+    Once the launch completes, you can run `docker` commands.
 
 3. Verify your setup succeeded by running the `hello-world` container.
 
@@ -188,17 +189,17 @@ There are several ways to use the installed tools, from the Docker Quickstart Te
         http://docs.docker.com/userguide/
 
 
-## Using Docker from Windows Command Line Prompt (cmd.exe)
+### Using Docker from Windows Command Prompt (cmd.exe)
 
-1. Launch a Windows Command Line Prompt (cmd.exe).
+1. Launch a Windows Command Prompt (cmd.exe).
 
     The `docker-machine` command requires `ssh.exe` in your `PATH` environment
-    variable. This `.exe` is in the MsysGit `bin` folder. 
+    variable. This `.exe` is in the MsysGit `bin` folder.
 
 2. Add this to the `%PATH%` environment variable by running:
 
         set PATH=%PATH%;"c:\Program Files (x86)\Git\bin"
-        
+
 3. Create a new Docker VM.
 
         docker-machine create --driver virtualbox my-default
@@ -212,20 +213,20 @@ There are several ways to use the installed tools, from the Docker Quickstart Te
     `C:\USERS\USERNAME\.docker\machine\machines` directory. You only need to run the `create`
     command once. Then, you can use `docker-machine` to start, stop, query, and
     otherwise manage the VM from the command line.
-    
+
 4. List your available machines.
 
         C:\Users\mary> docker-machine ls
         NAME                ACTIVE   DRIVER       STATE     URL                         SWARM
-        my-default        *        virtualbox   Running   tcp://192.168.99.101:2376  
-        
+        my-default        *        virtualbox   Running   tcp://192.168.99.101:2376
+
     If you have previously installed the deprecated Boot2Docker application or
-    run the Docker Quickstart Terminal, you may have a `dev` VM as well.  
+    run the Docker Quickstart Terminal, you may have a `dev` VM as well.
 
 5. Get the environment commands for your new VM.
 
         C:\Users\mary> docker-machine env --shell cmd my-default
-    
+
 6. Connect your shell to the `my-default` machine.
 
         C:\Users\mary> eval "$(docker-machine env my-default)"
@@ -234,28 +235,28 @@ There are several ways to use the installed tools, from the Docker Quickstart Te
 
         C:\Users\mary> docker run hello-world
 
-## Using Docker from PowerShell
+### Using Docker from PowerShell
 
 1. Launch a Windows PowerShell window.
 
 2. Add `ssh.exe` to your PATH:
 
         PS C:\Users\mary> $Env:Path = "${Env:Path};c:\Program Files (x86)\Git\bin"
-        
+
 3. Create a new Docker VM.
 
         PS C:\Users\mary> docker-machine create --driver virtualbox my-default
-    
+
 4. List your available machines.
 
         C:\Users\mary> docker-machine ls
         NAME                ACTIVE   DRIVER       STATE     URL                         SWARM
-        my-default        *        virtualbox   Running   tcp://192.168.99.101:2376  
-      
+        my-default        *        virtualbox   Running   tcp://192.168.99.101:2376
+
 5. Get the environment commands for your new VM.
 
         C:\Users\mary> docker-machine env --shell powershell my-default
-    
+
 6. Connect your shell to the `my-default` machine.
 
         C:\Users\mary> eval "$(docker-machine env my-default)"
@@ -269,13 +270,13 @@ There are several ways to use the installed tools, from the Docker Quickstart Te
 
 Toolbox installs the Docker Engine binary in the `C:\Program Files\Docker
 Toolbox` directory. When you use the Docker Quickstart Terminal or create a
-`default` manually, Docker Machine updates the
+`default` VM manually, Docker Machine updates the
 `C:\USERS\USERNAME\.docker\machine\machines\default` folder to your
 system. This folder contains the configuration for the VM.
 
-You can create multiple VMs on your system with Docker Machine. So, you may have
-more than one VM folder if you have more than one VM. To remove a VM, use the
-`docker-machine rm <machine-name>` command.
+You can create multiple VMs on your system with Docker Machine. Therefore, you
+may end up with multiple VM folders if you have created more than one VM. To
+remove a VM, use the `docker-machine rm <machine-name>` command.
 
 ## Migrate from Boot2Docker
 
@@ -288,9 +289,9 @@ this older VM, you can migrate it.
 2. Type the following command.
 
         $ docker-machine create -d virtualbox --virtualbox-import-boot2docker-vm boot2docker-vm docker-vm
-      
-3. Use the `docker-machine` command to interact with the migrated VM.  
-      
+
+3. Use the `docker-machine` command to interact with the migrated VM.
+
 The `docker-machine` subcommands are slightly different than the `boot2docker`
 subcommands. The table below lists the equivalent `docker-machine` subcommand
 and what it does:
@@ -321,7 +322,7 @@ installer](https://www.docker.com/toolbox).
 
 ## Container port redirection
 
-If you are curious, the username for the Docker default user is `docker` and the
+If you are curious, the username for the Docker default VM is `docker` and the
 password is `tcuser`. The latest version of `docker-machine` sets up a host only
 network adaptor which provides access to the container's ports.
 
@@ -345,8 +346,9 @@ this same directory. The private key needs to be converted into the format PuTTY
 uses. You can do this with
 [puttygen](http://www.chiark.greenend.org.uk/~sgtatham/putty/download.html):
 
-1. Open `puttygen.exe` and load ("File"->"Load" menu) the private key from
-  `%USERPROFILE%\.ssh\id_boot2docker`
+1. Open `puttygen.exe` and load ("File"->"Load" menu) the private key from (you may need to change to the `All Files (*.*)` filter)
+
+        %USERPROFILE%\.docker\machine\machines\<name_of_your_machine>\id_rsa
 
 2. Click "Save Private Key".
 
@@ -360,6 +362,6 @@ delete that file yourself.
 
 ## Learn more
 
-You can continue with the [Docker User Guide](/userguide). If you are
-interested in using the Kitematic GUI, see the [Kitermatic user
-guide](/kitematic/userguide/).
+You can continue with the [Docker User Guide](../userguide). If you are
+interested in using the Kitematic GUI, see the [Kitematic user
+guide](https://docs.docker.com/kitematic/userguide/).

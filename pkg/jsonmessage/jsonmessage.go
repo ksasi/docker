@@ -67,7 +67,13 @@ func (p *JSONProgress) String() string {
 		}
 		pbBox = fmt.Sprintf("[%s>%s] ", strings.Repeat("=", percentage), strings.Repeat(" ", numSpaces))
 	}
+
 	numbersBox = fmt.Sprintf("%8v/%v", current, total)
+
+	if p.Current > p.Total {
+		// remove total display if the reported current is wonky.
+		numbersBox = fmt.Sprintf("%8v", current)
+	}
 
 	if p.Current > 0 && p.Start > 0 && percentage < 50 {
 		fromStart := time.Now().UTC().Sub(time.Unix(p.Start, 0))
@@ -93,6 +99,7 @@ type JSONMessage struct {
 	ID              string        `json:"id,omitempty"`
 	From            string        `json:"from,omitempty"`
 	Time            int64         `json:"time,omitempty"`
+	TimeNano        int64         `json:"timeNano,omitempty"`
 	Error           *JSONError    `json:"errorDetail,omitempty"`
 	ErrorMessage    string        `json:"error,omitempty"` //deprecated
 }
@@ -115,7 +122,9 @@ func (jm *JSONMessage) Display(out io.Writer, isTerminal bool) error {
 	} else if jm.Progress != nil && jm.Progress.String() != "" { //disable progressbar in non-terminal
 		return nil
 	}
-	if jm.Time != 0 {
+	if jm.TimeNano != 0 {
+		fmt.Fprintf(out, "%s ", time.Unix(0, jm.TimeNano).Format(timeutils.RFC3339NanoFixed))
+	} else if jm.Time != 0 {
 		fmt.Fprintf(out, "%s ", time.Unix(jm.Time, 0).Format(timeutils.RFC3339NanoFixed))
 	}
 	if jm.ID != "" {

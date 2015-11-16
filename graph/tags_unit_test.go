@@ -13,7 +13,6 @@ import (
 	_ "github.com/docker/docker/daemon/graphdriver/vfs" // import the vfs driver so it is used in the tests
 	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/image"
-	"github.com/docker/docker/trust"
 	"github.com/docker/docker/utils"
 )
 
@@ -54,16 +53,11 @@ func fakeTar() (io.Reader, error) {
 }
 
 func mkTestTagStore(root string, t *testing.T) *TagStore {
-	driver, err := graphdriver.New(root, nil)
+	driver, err := graphdriver.New(root, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	graph, err := NewGraph(root, driver)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	trust, err := trust.NewTrustStore(root + "/trust")
+	graph, err := NewGraph(root, driver, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +65,6 @@ func mkTestTagStore(root string, t *testing.T) *TagStore {
 	tagCfg := &TagStoreConfig{
 		Graph:  graph,
 		Events: events.New(),
-		Trust:  trust,
 	}
 	store, err := NewTagStore(path.Join(root, "tags"), tagCfg)
 	if err != nil {
@@ -82,7 +75,7 @@ func mkTestTagStore(root string, t *testing.T) *TagStore {
 		t.Fatal(err)
 	}
 	img := &image.Image{ID: testOfficialImageID}
-	if err := graph.Register(img, officialArchive); err != nil {
+	if err := graph.Register(v1Descriptor{img}, officialArchive); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Tag(testOfficialImageName, "", testOfficialImageID, false); err != nil {
@@ -93,13 +86,13 @@ func mkTestTagStore(root string, t *testing.T) *TagStore {
 		t.Fatal(err)
 	}
 	img = &image.Image{ID: testPrivateImageID}
-	if err := graph.Register(img, privateArchive); err != nil {
+	if err := graph.Register(v1Descriptor{img}, privateArchive); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Tag(testPrivateImageName, "", testPrivateImageID, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetDigest(testPrivateImageName, testPrivateImageDigest, testPrivateImageID); err != nil {
+	if err := store.setDigest(testPrivateImageName, testPrivateImageDigest, testPrivateImageID); err != nil {
 		t.Fatal(err)
 	}
 	return store

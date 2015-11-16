@@ -5,7 +5,6 @@ description = "The run command description and usage"
 keywords = ["run, command, container"]
 [menu.main]
 parent = "smn_cli"
-weight=1
 +++
 <![end-metadata]-->
 
@@ -18,7 +17,8 @@ weight=1
       -a, --attach=[]               Attach to STDIN, STDOUT or STDERR
       --add-host=[]                 Add a custom host-to-IP mapping (host:ip)
       --blkio-weight=0              Block IO weight (relative weight)
-      -c, --cpu-shares=0            CPU shares (relative weight)
+      --blkio-weight-device=""      Block IO weight (relative device weight, format: `DEVICE_NAME:WEIGHT`)
+      --cpu-shares=0                CPU shares (relative weight)
       --cap-add=[]                  Add Linux capabilities
       --cap-drop=[]                 Drop Linux capabilities
       --cgroup-parent=""            Optional parent cgroup for the container
@@ -29,7 +29,9 @@ weight=1
       --cpuset-mems=""              Memory nodes (MEMs) in which to allow execution (0-3, 0,1)
       -d, --detach=false            Run container in background and print container ID
       --device=[]                   Add a host device to the container
+      --disable-content-trust=true  Skip image verification
       --dns=[]                      Set custom DNS servers
+      --dns-opt=[]                  Set custom DNS options
       --dns-search=[]               Set custom DNS search domains
       -e, --env=[]                  Set environment variables
       --entrypoint=""               Overwrite the default ENTRYPOINT of the image
@@ -40,32 +42,38 @@ weight=1
       --help=false                  Print usage
       -i, --interactive=false       Keep STDIN open even if not attached
       --ipc=""                      IPC namespace to use
+      --kernel-memory=""            Kernel memory limit
       -l, --label=[]                Set metadata on the container (e.g., --label=com.example.key=value)
       --label-file=[]               Read in a file of labels (EOL delimited)
       --link=[]                     Add link to another container
       --log-driver=""               Logging driver for container
       --log-opt=[]                  Log driver specific options
-      --lxc-conf=[]                 Add custom lxc options
       -m, --memory=""               Memory limit
       --mac-address=""              Container MAC address (e.g. 92:d0:c6:0a:29:33)
+      --memory-reservation=""       Memory soft limit
       --memory-swap=""              Total memory (memory + swap), '-1' to disable swap
       --memory-swappiness=""        Tune a container's memory swappiness behavior. Accepts an integer between 0 and 100.
       --name=""                     Assign a name to the container
-      --net="bridge"                Set the Network mode for the container
+      --net="bridge"                Connects a container to a network
+                                    'bridge': creates a new network stack for the container on the docker bridge
+                                    'none': no networking for this container
+                                    'container:<name|id>': reuses another container network stack
+                                    'host': use the host network stack inside the container
+                                    'NETWORK': connects the container to user-created network using `docker network create` command
       --oom-kill-disable=false      Whether to disable OOM Killer for the container or not
       -P, --publish-all=false       Publish all exposed ports to random ports
       -p, --publish=[]              Publish a container's port(s) to the host
       --pid=""                      PID namespace to use
       --privileged=false            Give extended privileges to this container
       --read-only=false             Mount the container's root filesystem as read only
-      --restart="no"                Restart policy (no, on-failure[:max-retry], always)
+      --restart="no"                Restart policy (no, on-failure[:max-retry], always, unless-stopped)
       --rm=false                    Automatically remove the container when it exits
       --security-opt=[]             Security Options
       --sig-proxy=true              Proxy received signals to the process
+      --stop-signal="SIGTERM"       Signal to stop a container
       -t, --tty=false               Allocate a pseudo-TTY
       -u, --user=""                 Username or UID (format: <name|uid>[:<group|gid>])
       --ulimit=[]                   Ulimit options
-      --disable-content-trust=true  Skip image verification
       --uts=""                      UTS namespace to use
       -v, --volume=[]               Bind mount a volume
       --volumes-from=[]             Mount volumes from the specified container(s)
@@ -78,17 +86,14 @@ specified image, and then `starts` it using the specified command. That is,
 previous changes intact using `docker start`. See `docker ps -a` to view a list
 of all containers.
 
-There is detailed information about `docker run` in the [Docker run reference](
-/reference/run/).
-
 The `docker run` command can be used in combination with `docker commit` to
-[*change the command that a container runs*](/reference/commandline/commit).
+[*change the command that a container runs*](commit.md). There is additional detailed information about `docker run` in the [Docker run reference](../run.md).
 
-See the [Docker User Guide](/userguide/dockerlinks/) for more detailed
-information about the `--expose`, `-p`, `-P` and `--link` parameters,
-and linking containers.
+For information on connecting a container to a network, see the ["*Docker network overview*"](../../userguide/networking/index.md).
 
 ## Examples
+
+### Assign name and allocate psuedo-TTY (--name, -it)
 
     $ docker run --name test -it debian
     root@d6c0fe130dba:/# exit 13
@@ -97,12 +102,14 @@ and linking containers.
     $ docker ps -a | grep test
     d6c0fe130dba        debian:7            "/bin/bash"         26 seconds ago      Exited (13) 17 seconds ago                         test
 
-This example runs a container named `test` using the `debian:latest` 
+This example runs a container named `test` using the `debian:latest`
 image. The `-it` instructs Docker to allocate a pseudo-TTY connected to
 the container's stdin; creating an interactive `bash` shell in the container.
 In the example, the `bash` shell is quit by entering
 `exit 13`. This exit code is passed on to the caller of
 `docker run`, and is recorded in the `test` container's metadata.
+
+### Capture container ID (--cidfile)
 
     $ docker run --cidfile /tmp/docker_test.cid ubuntu echo "test"
 
@@ -110,6 +117,8 @@ This will create a container and print `test` to the console. The `cidfile`
 flag makes Docker attempt to create a new file and write the container ID to it.
 If the file exists already, Docker will return an error. Docker will close this
 file when `docker run` exits.
+
+### Full container capabilities (--privileged)
 
     $ docker run -t -i --rm ubuntu bash
     root@bc338942ef20:/# mount -t tmpfs none /mnt
@@ -130,10 +139,14 @@ lifts all the limitations enforced by the `device` cgroup controller. In other
 words, the container can then do almost everything that the host can do. This
 flag exists to allow special use-cases, like running Docker within Docker.
 
+### Set working directory (-w)
+
     $ docker  run -w /path/to/dir/ -i -t  ubuntu pwd
 
 The `-w` lets the command being executed inside directory given, here
 `/path/to/dir/`. If the path does not exists it is created inside the container.
+
+### Mount volume (-v, --read-only)
 
     $ docker  run  -v `pwd`:`pwd` -w `pwd` -i -t  ubuntu pwd
 
@@ -164,18 +177,21 @@ binary (such as that provided by [https://get.docker.com](
 https://get.docker.com)), you give the container the full access to create and
 manipulate the host's Docker daemon.
 
+### Publish or expose port (-p, --expose)
+
     $ docker run -p 127.0.0.1:80:8080 ubuntu bash
 
-This binds port `8080` of the container to port `80` on `127.0.0.1` of
-the host machine. The [Docker User Guide](/userguide/dockerlinks/)
+This binds port `8080` of the container to port `80` on `127.0.0.1` of the host
+machine. The [Docker User
+Guide](../../userguide/networking/default_network/dockerlinks.md)
 explains in detail how to manipulate ports in Docker.
 
     $ docker run --expose 80 ubuntu bash
 
-This exposes port `80` of the container for use within a link without
-publishing the port to the host system's interfaces. The [Docker User
-Guide](/userguide/dockerlinks) explains in detail how to manipulate
-ports in Docker.
+This exposes port `80` of the container without publishing the port to the host
+system's interfaces.
+
+### Set environment variables (-e, --env, --env-file)
 
     $ docker run -e MYVAR1 --env MYVAR2=foo --env-file ./env.list ubuntu bash
 
@@ -212,7 +228,8 @@ An example of a file passed with `--env-file`
     _TEST_BAR=FOO
     TEST_APP_42=magic
     helloWorld=true
-    # 123qwe=bar <- is not valid
+    123qwe=bar
+    org.spring.config=something
 
     # pass through this variable from the caller
     TEST_PASSTHROUGH
@@ -227,6 +244,8 @@ An example of a file passed with `--env-file`
     helloWorld=true
     TEST_PASSTHROUGH=howdy
     HOME=/root
+    123qwe=bar
+    org.spring.config=something
 
     $ docker run --env-file ./env.list busybox env
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -239,11 +258,12 @@ An example of a file passed with `--env-file`
     helloWorld=true
     TEST_PASSTHROUGH=
     HOME=/root
+    123qwe=bar
+    org.spring.config=something
 
-> **Note**: Environment variables names must consist solely of letters, numbers,
-> and underscores - and cannot start with a number.
+### Set metadata on container (-l, --label, --label-file)
 
-A label is a a `key=value` pair that applies metadata to a container. To label a container with two labels:
+A label is a `key=value` pair that applies metadata to a container. To label a container with two labels:
 
     $ docker run -l my-label --label com.example.foo=bar ubuntu bash
 
@@ -274,22 +294,34 @@ format:
 You can load multiple label-files by supplying multiple  `--label-file` flags.
 
 For additional information on working with labels, see [*Labels - custom
-metadata in Docker*](/userguide/labels-custom-metadata/) in the Docker User
+metadata in Docker*](../../userguide/labels-custom-metadata.md) in the Docker User
 Guide.
 
-    $ docker run --link /redis:redis --name console ubuntu bash
+### Connect a container to a network (--net)
 
-The `--link` flag will link the container named `/redis` into the newly
-created container with the alias `redis`. The new container can access the
-network and environment of the `redis` container via environment variables.
-The `--link` flag will also just accept the form `<name or id>` in which case
-the alias will match the name. For instance, you could have written the previous
-example as:
+When you start a container use the `--net` flag to connect it to a network.
+This adds the `busybox` container to the `mynet` network.
 
-    $ docker run --link redis --name console ubuntu bash
+```bash
+$ docker run -itd --net=my-multihost-network busybox
+```
 
-The `--name` flag will assign the name `console` to the newly created
-container.
+If you want to add a running container to a network use the `docker network connect` subcommand.
+
+You can connect multiple containers to the same network. Once connected, the
+containers can communicate easily need only another container's IP address
+or name. For `overlay` networks or custom plugins that support multi-host
+connectivity, containers connected to the same multi-host network but launched
+from different Engines can also communicate in this way.
+
+**Note**: Service discovery is unavailable on the default bridge network.
+Containers can communicate via their IP addresses by default. To communicate
+by name, they must be linked.
+
+You can disconnect a container from a network using the `docker network
+disconnect` command.
+
+### Mount volumes from container (--volumes-from)
 
     $ docker run --volumes-from 777f7dc92da7 --volumes-from ba8c0c54f0f2:ro -i -t ubuntu pwd
 
@@ -313,6 +345,8 @@ content label. Shared volume labels allow all containers to read/write content.
 The `Z` option tells Docker to label the content with a private unshared label.
 Only the current container can use a private volume.
 
+### Attach to STDIN/STDOUT/STDERR (-a)
+
 The `-a` flag tells `docker run` to bind to the container's `STDIN`, `STDOUT`
 or `STDERR`. This makes it possible to manipulate the output and input as
 needed.
@@ -335,6 +369,8 @@ The container's ID will be printed after the build is done and the build
 logs could be retrieved using `docker logs`. This is
 useful if you need to pipe a file or something else into a container and
 retrieve the container's ID once the container has finished running.
+
+### Add host device to container (--device)
 
     $ docker run --device=/dev/sdc:/dev/xvdc --device=/dev/sdd --device=/dev/zero:/dev/nulo -i -t ubuntu ls -l /dev/{xvdc,sdd,nulo}
     brw-rw---- 1 root disk 8, 2 Feb  9 16:05 /dev/xvdc
@@ -371,38 +407,7 @@ flag:
 > that may be removed should not be added to untrusted containers with
 > `--device`.
 
-**A complete example:**
-
-    $ docker run -d --name static static-web-files sh
-    $ docker run -d --expose=8098 --name riak riakserver
-    $ docker run -d -m 100m -e DEVELOPMENT=1 -e BRANCH=example-code -v $(pwd):/app/bin:ro --name app appserver
-    $ docker run -d -p 1443:443 --dns=10.0.0.1 --dns-search=dev.org -v /var/log/httpd --volumes-from static --link riak --link app -h www.sven.dev.org --name web webserver
-    $ docker run -t -i --rm --volumes-from web -w /var/log/httpd busybox tail -f access.log
-
-This example shows five containers that might be set up to test a web
-application change:
-
-1. Start a pre-prepared volume image `static-web-files` (in the background)
-   that has CSS, image and static HTML in it, (with a `VOLUME` instruction in
-   the Dockerfile to allow the web server to use those files);
-2. Start a pre-prepared `riakserver` image, give the container name `riak` and
-   expose port `8098` to any containers that link to it;
-3. Start the `appserver` image, restricting its memory usage to 100MB, setting
-   two environment variables `DEVELOPMENT` and `BRANCH` and bind-mounting the
-   current directory (`$(pwd)`) in the container in read-only mode as `/app/bin`;
-4. Start the `webserver`, mapping port `443` in the container to port `1443` on
-   the Docker server, setting the DNS server to `10.0.0.1` and DNS search
-   domain to `dev.org`, creating a volume to put the log files into (so we can
-   access it from another container), then importing the files from the volume
-   exposed by the `static` container, and linking to all exposed ports from
-   `riak` and `app`. Lastly, we set the hostname to `web.sven.dev.org` so its
-   consistent with the pre-generated SSL certificate;
-5. Finally, we create a container that runs `tail -f access.log` using the logs
-   volume from the `web` container, setting the workdir to `/var/log/httpd`. The
-   `--rm` option means that when the container exits, the container's layer is
-   removed.
-
-## Restart policies
+### Restart policies (--restart)
 
 Use Docker's `--restart` to specify a container's *restart policy*. A restart
 policy controls whether the Docker daemon restarts a container after exit.
@@ -440,7 +445,16 @@ Docker supports the following restart policies:
       <td>
         Always restart the container regardless of the exit status.
         When you specify always, the Docker daemon will try to restart
-        the container indefinitely.
+        the container indefinitely. The container will also always start
+        on daemon startup, regardless of the current state of the container.
+      </td>
+    </tr>
+    <tr>
+      <td><strong>unless-stopped</strong></td>
+      <td>
+        Always restart the container regardless of the exit status, but
+        do not start it on daemon startup if the container has been put
+        to a stopped state before.
       </td>
     </tr>
   </tbody>
@@ -452,10 +466,10 @@ This will run the `redis` container with a restart policy of **always**
 so that if the container exits, Docker will restart it.
 
 More detailed information on restart policies can be found in the
-[Restart Policies (--restart)](/reference/run/#restart-policies-restart)
+[Restart Policies (--restart)](../run.md#restart-policies-restart)
 section of the Docker run reference page.
 
-## Adding entries to a container hosts file
+### Add entries to container hosts file (--add-host)
 
 You can add other hosts into a container's `/etc/hosts` file by using one or
 more `--add-host` flags. This example adds a static address for a host named
@@ -486,7 +500,7 @@ For IPv6 use the `-6` flag instead of the `-4` flag. For other network
 devices, replace `eth0` with the correct device name (for example `docker0`
 for the bridge device).
 
-### Setting ulimits in a container
+### Set ulimits in container (--ulimit)
 
 Since setting `ulimit` settings in a container requires extra privileges not
 available in the default container, you can set these using the `--ulimit` flag.
@@ -506,18 +520,23 @@ available in the default container, you can set these using the `--ulimit` flag.
 The values are sent to the appropriate `syscall` as they are set.
 Docker doesn't perform any byte conversion. Take this into account when setting the values.
 
-#### For `nproc` usage:
+#### For `nproc` usage
 
 Be careful setting `nproc` with the `ulimit` flag as `nproc` is designed by Linux to set the
 maximum number of processes available to a user, not to a container.  For example, start four
 containers with `daemon` user:
 
-
     docker run -d -u daemon --ulimit nproc=3 busybox top
     docker run -d -u daemon --ulimit nproc=3 busybox top
     docker run -d -u daemon --ulimit nproc=3 busybox top
     docker run -d -u daemon --ulimit nproc=3 busybox top
 
-The 4th container fails and reports "[8] System error: resource temporarily unavailable" error. 
-This fails because the caller set `nproc=3` resulting in the first three containers using up 
+The 4th container fails and reports "[8] System error: resource temporarily unavailable" error.
+This fails because the caller set `nproc=3` resulting in the first three containers using up
 the three processes quota set for the `daemon` user.
+
+### Stop container with signal (--stop-signal)
+
+The `--stop-signal` flag sets the system call signal that will be sent to the container to exit.
+This signal can be a valid unsigned number that matches a position in the kernel's syscall table, for instance 9,
+or a signal name in the format SIGNAME, for instance SIGKILL.

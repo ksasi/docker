@@ -8,12 +8,15 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/docker/docker/pkg/integration/checker"
 	"github.com/docker/docker/pkg/mount"
+	"github.com/docker/docker/pkg/parsers"
+	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/go-check/check"
 	"github.com/kr/pty"
 )
@@ -22,16 +25,12 @@ import (
 func (s *DockerSuite) TestRunRedirectStdout(c *check.C) {
 	checkRedirect := func(command string) {
 		_, tty, err := pty.Open()
-		if err != nil {
-			c.Fatalf("Could not open pty: %v", err)
-		}
+		c.Assert(err, checker.IsNil, check.Commentf("Could not open pty"))
 		cmd := exec.Command("sh", "-c", command)
 		cmd.Stdin = tty
 		cmd.Stdout = tty
 		cmd.Stderr = tty
-		if err := cmd.Start(); err != nil {
-			c.Fatalf("start err: %v", err)
-		}
+		c.Assert(cmd.Start(), checker.IsNil)
 		ch := make(chan error)
 		go func() {
 			ch <- cmd.Wait()
@@ -42,9 +41,7 @@ func (s *DockerSuite) TestRunRedirectStdout(c *check.C) {
 		case <-time.After(10 * time.Second):
 			c.Fatal("command timeout")
 		case err := <-ch:
-			if err != nil {
-				c.Fatalf("wait err=%v", err)
-			}
+			c.Assert(err, checker.IsNil, check.Commentf("wait err"))
 		}
 	}
 
@@ -54,131 +51,39 @@ func (s *DockerSuite) TestRunRedirectStdout(c *check.C) {
 
 // Test recursive bind mount works by default
 func (s *DockerSuite) TestRunWithVolumesIsRecursive(c *check.C) {
+	// /tmp gets permission denied
+	testRequires(c, NotUserNamespace)
 	tmpDir, err := ioutil.TempDir("", "docker_recursive_mount_test")
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.Assert(err, checker.IsNil)
 
 	defer os.RemoveAll(tmpDir)
 
 	// Create a temporary tmpfs mount.
 	tmpfsDir := filepath.Join(tmpDir, "tmpfs")
-	if err := os.MkdirAll(tmpfsDir, 0777); err != nil {
-		c.Fatalf("failed to mkdir at %s - %s", tmpfsDir, err)
-	}
-	if err := mount.Mount("tmpfs", tmpfsDir, "tmpfs", ""); err != nil {
-		c.Fatalf("failed to create a tmpfs mount at %s - %s", tmpfsDir, err)
-	}
+	c.Assert(os.MkdirAll(tmpfsDir, 0777), checker.IsNil, check.Commentf("failed to mkdir at %s", tmpfsDir))
+	c.Assert(mount.Mount("tmpfs", tmpfsDir, "tmpfs", ""), checker.IsNil, check.Commentf("failed to create a tmpfs mount at %s", tmpfsDir))
 
 	f, err := ioutil.TempFile(tmpfsDir, "touch-me")
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.Assert(err, checker.IsNil)
 	defer f.Close()
 
 	runCmd := exec.Command(dockerBinary, "run", "--name", "test-data", "--volume", fmt.Sprintf("%s:/tmp:ro", tmpDir), "busybox:latest", "ls", "/tmp/tmpfs")
-	out, stderr, exitCode, err := runCommandWithStdoutStderr(runCmd)
-	if err != nil && exitCode != 0 {
-		c.Fatal(out, stderr, err)
-	}
-	if !strings.Contains(out, filepath.Base(f.Name())) {
-		c.Fatal("Recursive bind mount test failed. Expected file not found")
-	}
-}
-
-func (s *DockerSuite) TestRunWithUlimits(c *check.C) {
-	testRequires(c, NativeExecDriver)
-
-	out, _ := dockerCmd(c, "run", "--name=testulimits", "--ulimit", "nofile=42", "busybox", "/bin/sh", "-c", "ulimit -n")
-	ul := strings.TrimSpace(out)
-	if ul != "42" {
-		c.Fatalf("expected `ulimit -n` to be 42, got %s", ul)
-	}
-}
-
-func (s *DockerSuite) TestRunContainerWithCgroupParent(c *check.C) {
-	testRequires(c, NativeExecDriver)
-
-	cgroupParent := "test"
-	name := "cgroup-test"
-
-	out, _, err := dockerCmdWithError("run", "--cgroup-parent", cgroupParent, "--name", name, "busybox", "cat", "/proc/self/cgroup")
-	if err != nil {
-		c.Fatalf("unexpected failure when running container with --cgroup-parent option - %s\n%v", string(out), err)
-	}
-	cgroupPaths := parseCgroupPaths(string(out))
-	if len(cgroupPaths) == 0 {
-		c.Fatalf("unexpected output - %q", string(out))
-	}
-	id, err := getIDByName(name)
-	c.Assert(err, check.IsNil)
-	expectedCgroup := path.Join(cgroupParent, id)
-	found := false
-	for _, path := range cgroupPaths {
-		if strings.HasSuffix(path, expectedCgroup) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		c.Fatalf("unexpected cgroup paths. Expected at least one cgroup path to have suffix %q. Cgroup Paths: %v", expectedCgroup, cgroupPaths)
-	}
-}
-
-func (s *DockerSuite) TestRunContainerWithCgroupParentAbsPath(c *check.C) {
-	testRequires(c, NativeExecDriver)
-
-	cgroupParent := "/cgroup-parent/test"
-	name := "cgroup-test"
-	out, _, err := dockerCmdWithError("run", "--cgroup-parent", cgroupParent, "--name", name, "busybox", "cat", "/proc/self/cgroup")
-	if err != nil {
-		c.Fatalf("unexpected failure when running container with --cgroup-parent option - %s\n%v", string(out), err)
-	}
-	cgroupPaths := parseCgroupPaths(string(out))
-	if len(cgroupPaths) == 0 {
-		c.Fatalf("unexpected output - %q", string(out))
-	}
-	id, err := getIDByName(name)
-	c.Assert(err, check.IsNil)
-	expectedCgroup := path.Join(cgroupParent, id)
-	found := false
-	for _, path := range cgroupPaths {
-		if strings.HasSuffix(path, expectedCgroup) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		c.Fatalf("unexpected cgroup paths. Expected at least one cgroup path to have suffix %q. Cgroup Paths: %v", expectedCgroup, cgroupPaths)
-	}
-}
-
-func (s *DockerSuite) TestRunContainerWithCgroupMountRO(c *check.C) {
-	testRequires(c, NativeExecDriver)
-
-	filename := "/sys/fs/cgroup/devices/test123"
-	out, _, err := dockerCmdWithError("run", "busybox", "touch", filename)
-	if err == nil {
-		c.Fatal("expected cgroup mount point to be read-only, touch file should fail")
-	}
-	expected := "Read-only file system"
-	if !strings.Contains(out, expected) {
-		c.Fatalf("expected output from failure to contain %s but contains %s", expected, out)
-	}
+	out, _, _, err := runCommandWithStdoutStderr(runCmd)
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Contains, filepath.Base(f.Name()), check.Commentf("Recursive bind mount test failed. Expected file not found"))
 }
 
 func (s *DockerSuite) TestRunDeviceDirectory(c *check.C) {
-	testRequires(c, NativeExecDriver)
+	testRequires(c, DaemonIsLinux, NotUserNamespace)
+	if _, err := os.Stat("/dev/snd"); err != nil {
+		c.Skip("Host does not have /dev/snd")
+	}
 
 	out, _ := dockerCmd(c, "run", "--device", "/dev/snd:/dev/snd", "busybox", "sh", "-c", "ls /dev/snd/")
-	if actual := strings.Trim(out, "\r\n"); !strings.Contains(out, "timer") {
-		c.Fatalf("expected output /dev/snd/timer, received %s", actual)
-	}
+	c.Assert(strings.Trim(out, "\r\n"), checker.Contains, "timer", check.Commentf("expected output /dev/snd/timer"))
 
 	out, _ = dockerCmd(c, "run", "--device", "/dev/snd:/dev/othersnd", "busybox", "sh", "-c", "ls /dev/othersnd/")
-	if actual := strings.Trim(out, "\r\n"); !strings.Contains(out, "seq") {
-		c.Fatalf("expected output /dev/othersnd/seq, received %s", actual)
-	}
+	c.Assert(strings.Trim(out, "\r\n"), checker.Contains, "seq", check.Commentf("expected output /dev/othersnd/seq"))
 }
 
 // TestRunDetach checks attaching and detaching with the escape sequence.
@@ -186,42 +91,27 @@ func (s *DockerSuite) TestRunAttachDetach(c *check.C) {
 	name := "attach-detach"
 	cmd := exec.Command(dockerBinary, "run", "--name", name, "-it", "busybox", "cat")
 	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.Assert(err, checker.IsNil)
 	cpty, tty, err := pty.Open()
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.Assert(err, checker.IsNil)
 	defer cpty.Close()
 	cmd.Stdin = tty
-	if err := cmd.Start(); err != nil {
-		c.Fatal(err)
-	}
-	if err := waitRun(name); err != nil {
-		c.Fatal(err)
-	}
+	c.Assert(cmd.Start(), checker.IsNil)
+	c.Assert(waitRun(name), check.IsNil)
 
-	if _, err := cpty.Write([]byte("hello\n")); err != nil {
-		c.Fatal(err)
-	}
+	_, err = cpty.Write([]byte("hello\n"))
+	c.Assert(err, checker.IsNil)
 
 	out, err := bufio.NewReader(stdout).ReadString('\n')
-	if err != nil {
-		c.Fatal(err)
-	}
-	if strings.TrimSpace(out) != "hello" {
-		c.Fatalf("expected 'hello', got %q", out)
-	}
+	c.Assert(err, checker.IsNil)
+	c.Assert(strings.TrimSpace(out), checker.Equals, "hello")
 
 	// escape sequence
-	if _, err := cpty.Write([]byte{16}); err != nil {
-		c.Fatal(err)
-	}
+	_, err = cpty.Write([]byte{16})
+	c.Assert(err, checker.IsNil)
 	time.Sleep(100 * time.Millisecond)
-	if _, err := cpty.Write([]byte{17}); err != nil {
-		c.Fatal(err)
-	}
+	_, err = cpty.Write([]byte{17})
+	c.Assert(err, checker.IsNil)
 
 	ch := make(chan struct{})
 	go func() {
@@ -230,12 +120,8 @@ func (s *DockerSuite) TestRunAttachDetach(c *check.C) {
 	}()
 
 	running, err := inspectField(name, "State.Running")
-	if err != nil {
-		c.Fatal(err)
-	}
-	if running != "true" {
-		c.Fatal("expected container to still be running")
-	}
+	c.Assert(err, checker.IsNil)
+	c.Assert(running, checker.Equals, "true", check.Commentf("expected container to still be running"))
 
 	go func() {
 		exec.Command(dockerBinary, "kill", name).Run()
@@ -253,34 +139,88 @@ func (s *DockerSuite) TestRunEchoStdoutWithCPUQuota(c *check.C) {
 	testRequires(c, cpuCfsQuota)
 
 	out, _, err := dockerCmdWithError("run", "--cpu-quota", "8000", "--name", "test", "busybox", "echo", "test")
-	if err != nil {
-		c.Fatalf("failed to run container: %v, output: %q", err, out)
-	}
+	c.Assert(err, checker.IsNil, check.Commentf("failed to run container, output: %q", out))
 	out = strings.TrimSpace(out)
-	if out != "test" {
-		c.Errorf("container should've printed 'test'")
-	}
+	c.Assert(out, checker.Equals, "test", check.Commentf("container should've printed 'test'"))
 
 	out, err = inspectField("test", "HostConfig.CpuQuota")
 	c.Assert(err, check.IsNil)
 
-	if out != "8000" {
-		c.Fatalf("setting the CPU CFS quota failed")
-	}
+	c.Assert(out, checker.Equals, "8000", check.Commentf("setting the CPU CFS quota failed"))
 }
 
 func (s *DockerSuite) TestRunWithCpuPeriod(c *check.C) {
 	testRequires(c, cpuCfsPeriod)
 
-	if _, _, err := dockerCmdWithError("run", "--cpu-period", "50000", "--name", "test", "busybox", "true"); err != nil {
-		c.Fatalf("failed to run container: %v", err)
-	}
+	dockerCmd(c, "run", "--cpu-period", "50000", "--name", "test", "busybox", "true")
 
 	out, err := inspectField("test", "HostConfig.CpuPeriod")
 	c.Assert(err, check.IsNil)
-	if out != "50000" {
-		c.Fatalf("setting the CPU CFS period failed")
-	}
+	c.Assert(out, checker.Equals, "50000", check.Commentf("setting the CPU CFS period failed"))
+}
+
+func (s *DockerSuite) TestRunWithKernelMemory(c *check.C) {
+	testRequires(c, kernelMemorySupport)
+
+	dockerCmd(c, "run", "--kernel-memory", "50M", "--name", "test1", "busybox", "true")
+
+	out, err := inspectField("test1", "HostConfig.KernelMemory")
+	c.Assert(err, check.IsNil)
+	c.Assert(out, check.Equals, "52428800")
+
+	out, _, err = dockerCmdWithError("run", "--kernel-memory", "-16m", "--name", "test2", "busybox", "echo", "test")
+	expected := "invalid size"
+	c.Assert(err, check.NotNil)
+	c.Assert(out, checker.Contains, expected)
+}
+
+// "test" should be printed
+func (s *DockerSuite) TestRunEchoStdoutWitCPUShares(c *check.C) {
+	testRequires(c, cpuShare)
+	out, _ := dockerCmd(c, "run", "--cpu-shares", "1000", "busybox", "echo", "test")
+	c.Assert(out, checker.Equals, "test\n", check.Commentf("container should've printed 'test'"))
+}
+
+// "test" should be printed
+func (s *DockerSuite) TestRunEchoStdoutWithCPUSharesAndMemoryLimit(c *check.C) {
+	testRequires(c, cpuShare)
+	testRequires(c, memoryLimitSupport)
+	out, _, _ := dockerCmdWithStdoutStderr(c, "run", "--cpu-shares", "1000", "-m", "32m", "busybox", "echo", "test")
+	c.Assert(out, checker.Equals, "test\n", check.Commentf("container should've printed 'test'"))
+}
+
+func (s *DockerSuite) TestRunWithCpuset(c *check.C) {
+	testRequires(c, cgroupCpuset)
+	dockerCmd(c, "run", "--cpuset", "0", "busybox", "true")
+}
+
+func (s *DockerSuite) TestRunWithCpusetCpus(c *check.C) {
+	testRequires(c, cgroupCpuset)
+	dockerCmd(c, "run", "--cpuset-cpus", "0", "busybox", "true")
+}
+
+func (s *DockerSuite) TestRunWithCpusetMems(c *check.C) {
+	testRequires(c, cgroupCpuset)
+	dockerCmd(c, "run", "--cpuset-mems", "0", "busybox", "true")
+}
+
+func (s *DockerSuite) TestRunWithBlkioWeight(c *check.C) {
+	testRequires(c, blkioWeight)
+	dockerCmd(c, "run", "--blkio-weight", "300", "busybox", "true")
+}
+
+func (s *DockerSuite) TestRunWithBlkioInvalidWeight(c *check.C) {
+	testRequires(c, blkioWeight)
+	out, _, err := dockerCmdWithError("run", "--blkio-weight", "5", "busybox", "true")
+	c.Assert(err, check.NotNil, check.Commentf(out))
+	expected := "Range of blkio weight is from 10 to 1000"
+	c.Assert(out, checker.Contains, expected)
+}
+
+func (s *DockerSuite) TestRunWithBlkioInvalidWeightDevice(c *check.C) {
+	testRequires(c, blkioWeight)
+	out, _, err := dockerCmdWithError("run", "--blkio-weight-device", "/dev/sda:5", "busybox", "true")
+	c.Assert(err, check.NotNil, check.Commentf(out))
 }
 
 func (s *DockerSuite) TestRunOOMExitCode(c *check.C) {
@@ -288,7 +228,8 @@ func (s *DockerSuite) TestRunOOMExitCode(c *check.C) {
 	errChan := make(chan error)
 	go func() {
 		defer close(errChan)
-		out, exitCode, _ := dockerCmdWithError("run", "-m", "4MB", "busybox", "sh", "-c", "x=a; while true; do x=$x$x$x$x; done")
+		//changing memory to 40MB from 4MB due to an issue with GCCGO that test fails to start the container.
+		out, exitCode, _ := dockerCmdWithError("run", "-m", "40MB", "busybox", "sh", "-c", "x=a; while true; do x=$x$x$x$x; done")
 		if expected := 137; exitCode != expected {
 			errChan <- fmt.Errorf("wrong exit code for OOM container: expected %d, got %d (output: %q)", expected, exitCode, out)
 		}
@@ -302,115 +243,131 @@ func (s *DockerSuite) TestRunOOMExitCode(c *check.C) {
 	}
 }
 
-func (s *DockerSuite) TestContainerNetworkModeToSelf(c *check.C) {
-	out, _, err := dockerCmdWithError("run", "--name=me", "--net=container:me", "busybox", "true")
-	if err == nil || !strings.Contains(out, "cannot join own network") {
-		c.Fatalf("using container net mode to self should result in an error")
-	}
+// "test" should be printed
+func (s *DockerSuite) TestRunEchoStdoutWithMemoryLimit(c *check.C) {
+	testRequires(c, memoryLimitSupport)
+	out, _, _ := dockerCmdWithStdoutStderr(c, "run", "-m", "32m", "busybox", "echo", "test")
+	out = strings.Trim(out, "\r\n")
+
+	c.Assert(out, checker.Equals, "test", check.Commentf("container should've printed 'test'"))
 }
 
-func (s *DockerSuite) TestRunContainerNetModeWithDnsMacHosts(c *check.C) {
-	out, _, err := dockerCmdWithError("run", "-d", "--name", "parent", "busybox", "top")
-	if err != nil {
-		c.Fatalf("failed to run container: %v, output: %q", err, out)
-	}
-
-	out, _, err = dockerCmdWithError("run", "--dns", "1.2.3.4", "--net=container:parent", "busybox")
-	if err == nil || !strings.Contains(out, "Conflicting options: --dns and the network mode") {
-		c.Fatalf("run --net=container with --dns should error out")
-	}
-
-	out, _, err = dockerCmdWithError("run", "--mac-address", "92:d0:c6:0a:29:33", "--net=container:parent", "busybox")
-	if err == nil || !strings.Contains(out, "--mac-address and the network mode") {
-		c.Fatalf("run --net=container with --mac-address should error out")
-	}
-
-	out, _, err = dockerCmdWithError("run", "--add-host", "test:192.168.2.109", "--net=container:parent", "busybox")
-	if err == nil || !strings.Contains(out, "--add-host and the network mode") {
-		c.Fatalf("run --net=container with --add-host should error out")
-	}
+// TestRunWithoutMemoryswapLimit sets memory limit and disables swap
+// memory limit, this means the processes in the container can use
+// 16M memory and as much swap memory as they need (if the host
+// supports swap memory).
+func (s *DockerSuite) TestRunWithoutMemoryswapLimit(c *check.C) {
+	testRequires(c, DaemonIsLinux)
+	testRequires(c, memoryLimitSupport)
+	testRequires(c, swapMemorySupport)
+	dockerCmd(c, "run", "-m", "16m", "--memory-swap", "-1", "busybox", "true")
 }
 
-func (s *DockerSuite) TestRunContainerNetModeWithExposePort(c *check.C) {
-	dockerCmd(c, "run", "-d", "--name", "parent", "busybox", "top")
-
-	out, _, err := dockerCmdWithError("run", "-p", "5000:5000", "--net=container:parent", "busybox")
-	if err == nil || !strings.Contains(out, "Conflicting options: -p, -P, --publish-all, --publish and the network mode (--net)") {
-		c.Fatalf("run --net=container with -p should error out")
-	}
-
-	out, _, err = dockerCmdWithError("run", "-P", "--net=container:parent", "busybox")
-	if err == nil || !strings.Contains(out, "Conflicting options: -p, -P, --publish-all, --publish and the network mode (--net)") {
-		c.Fatalf("run --net=container with -P should error out")
-	}
-
-	out, _, err = dockerCmdWithError("run", "--expose", "5000", "--net=container:parent", "busybox")
-	if err == nil || !strings.Contains(out, "Conflicting options: --expose and the network mode (--expose)") {
-		c.Fatalf("run --net=container with --expose should error out")
-	}
+func (s *DockerSuite) TestRunWithSwappiness(c *check.C) {
+	testRequires(c, memorySwappinessSupport)
+	dockerCmd(c, "run", "--memory-swappiness", "0", "busybox", "true")
 }
 
-func (s *DockerSuite) TestRunLinkToContainerNetMode(c *check.C) {
-	dockerCmd(c, "run", "--name", "test", "-d", "busybox", "top")
-	dockerCmd(c, "run", "--name", "parent", "-d", "--net=container:test", "busybox", "top")
-	dockerCmd(c, "run", "-d", "--link=parent:parent", "busybox", "top")
-	dockerCmd(c, "run", "--name", "child", "-d", "--net=container:parent", "busybox", "top")
-	dockerCmd(c, "run", "-d", "--link=child:child", "busybox", "top")
+func (s *DockerSuite) TestRunWithSwappinessInvalid(c *check.C) {
+	testRequires(c, memorySwappinessSupport)
+	out, _, err := dockerCmdWithError("run", "--memory-swappiness", "101", "busybox", "true")
+	c.Assert(err, check.NotNil)
+	expected := "Valid memory swappiness range is 0-100"
+	c.Assert(out, checker.Contains, expected, check.Commentf("Expected output to contain %q, not %q", out, expected))
+
+	out, _, err = dockerCmdWithError("run", "--memory-swappiness", "-10", "busybox", "true")
+	c.Assert(err, check.NotNil)
+	c.Assert(out, checker.Contains, expected, check.Commentf("Expected output to contain %q, not %q", out, expected))
 }
 
-func (s *DockerSuite) TestRunLoopbackOnlyExistsWhenNetworkingDisabled(c *check.C) {
-	out, _ := dockerCmd(c, "run", "--net=none", "busybox", "ip", "-o", "-4", "a", "show", "up")
+func (s *DockerSuite) TestRunWithMemoryReservation(c *check.C) {
+	testRequires(c, memoryReservationSupport)
+	dockerCmd(c, "run", "--memory-reservation", "200M", "busybox", "true")
+}
 
-	var (
-		count = 0
-		parts = strings.Split(out, "\n")
-	)
+func (s *DockerSuite) TestRunWithMemoryReservationInvalid(c *check.C) {
+	testRequires(c, memoryLimitSupport)
+	testRequires(c, memoryReservationSupport)
+	out, _, err := dockerCmdWithError("run", "-m", "500M", "--memory-reservation", "800M", "busybox", "true")
+	c.Assert(err, check.NotNil)
+	expected := "Minimum memory limit should be larger than memory reservation limit"
+	c.Assert(strings.TrimSpace(out), checker.Contains, expected, check.Commentf("run container should fail with invalid memory reservation"))
+}
 
-	for _, l := range parts {
-		if l != "" {
-			count++
+func (s *DockerSuite) TestStopContainerSignal(c *check.C) {
+	out, _ := dockerCmd(c, "run", "--stop-signal", "SIGUSR1", "-d", "busybox", "/bin/sh", "-c", `trap 'echo "exit trapped"; exit 0' USR1; while true; do sleep 1; done`)
+	containerID := strings.TrimSpace(out)
+
+	c.Assert(waitRun(containerID), checker.IsNil)
+
+	dockerCmd(c, "stop", containerID)
+	out, _ = dockerCmd(c, "logs", containerID)
+
+	c.Assert(out, checker.Contains, "exit trapped", check.Commentf("Expected `exit trapped` in the log"))
+}
+
+func (s *DockerSuite) TestRunSwapLessThanMemoryLimit(c *check.C) {
+	testRequires(c, memoryLimitSupport)
+	testRequires(c, swapMemorySupport)
+	out, _, err := dockerCmdWithError("run", "-m", "16m", "--memory-swap", "15m", "busybox", "echo", "test")
+	expected := "Minimum memoryswap limit should be larger than memory limit"
+	c.Assert(err, check.NotNil)
+
+	c.Assert(out, checker.Contains, expected)
+}
+
+func (s *DockerSuite) TestRunInvalidCpusetCpusFlagValue(c *check.C) {
+	testRequires(c, cgroupCpuset)
+
+	sysInfo := sysinfo.New(true)
+	cpus, err := parsers.ParseUintList(sysInfo.Cpus)
+	c.Assert(err, check.IsNil)
+	var invalid int
+	for i := 0; i <= len(cpus)+1; i++ {
+		if !cpus[i] {
+			invalid = i
+			break
 		}
 	}
-
-	if count != 1 {
-		c.Fatalf("Wrong interface count in container %d", count)
-	}
-
-	if !strings.HasPrefix(out, "1: lo") {
-		c.Fatalf("Wrong interface in test container: expected [1: lo], got %s", out)
-	}
+	out, _, err := dockerCmdWithError("run", "--cpuset-cpus", strconv.Itoa(invalid), "busybox", "true")
+	c.Assert(err, check.NotNil)
+	expected := fmt.Sprintf("Error response from daemon: Requested CPUs are not available - requested %s, available: %s", strconv.Itoa(invalid), sysInfo.Cpus)
+	c.Assert(out, checker.Contains, expected)
 }
 
-// Issue #4681
-func (s *DockerSuite) TestRunLoopbackWhenNetworkDisabled(c *check.C) {
-	dockerCmd(c, "run", "--net=none", "busybox", "ping", "-c", "1", "127.0.0.1")
-}
+func (s *DockerSuite) TestRunInvalidCpusetMemsFlagValue(c *check.C) {
+	testRequires(c, cgroupCpuset)
 
-func (s *DockerSuite) TestRunModeNetContainerHostname(c *check.C) {
-	testRequires(c, ExecSupport)
-
-	dockerCmd(c, "run", "-i", "-d", "--name", "parent", "busybox", "top")
-	out, _ := dockerCmd(c, "exec", "parent", "cat", "/etc/hostname")
-	out1, _ := dockerCmd(c, "run", "--net=container:parent", "busybox", "cat", "/etc/hostname")
-
-	if out1 != out {
-		c.Fatal("containers with shared net namespace should have same hostname")
-	}
-}
-
-func (s *DockerSuite) TestRunNetworkNotInitializedNoneMode(c *check.C) {
-	out, _, err := dockerCmdWithError("run", "-d", "--net=none", "busybox", "top")
-	id := strings.TrimSpace(out)
-	res, err := inspectField(id, "NetworkSettings.IPAddress")
+	sysInfo := sysinfo.New(true)
+	mems, err := parsers.ParseUintList(sysInfo.Mems)
 	c.Assert(err, check.IsNil)
-	if res != "" {
-		c.Fatalf("For 'none' mode network must not be initialized, but container got IP: %s", res)
+	var invalid int
+	for i := 0; i <= len(mems)+1; i++ {
+		if !mems[i] {
+			invalid = i
+			break
+		}
 	}
+	out, _, err := dockerCmdWithError("run", "--cpuset-mems", strconv.Itoa(invalid), "busybox", "true")
+	c.Assert(err, check.NotNil)
+	expected := fmt.Sprintf("Error response from daemon: Requested memory nodes are not available - requested %s, available: %s", strconv.Itoa(invalid), sysInfo.Mems)
+	c.Assert(out, checker.Contains, expected)
 }
 
-func (s *DockerSuite) TestTwoContainersInNetHost(c *check.C) {
-	dockerCmd(c, "run", "-d", "--net=host", "--name=first", "busybox", "top")
-	dockerCmd(c, "run", "-d", "--net=host", "--name=second", "busybox", "top")
-	dockerCmd(c, "stop", "first")
-	dockerCmd(c, "stop", "second")
+func (s *DockerSuite) TestRunInvalidCPUShares(c *check.C) {
+	testRequires(c, cpuShare, DaemonIsLinux)
+	out, _, err := dockerCmdWithError("run", "--cpu-shares", "1", "busybox", "echo", "test")
+	c.Assert(err, check.NotNil, check.Commentf(out))
+	expected := "The minimum allowed cpu-shares is 2"
+	c.Assert(out, checker.Contains, expected)
+
+	out, _, err = dockerCmdWithError("run", "--cpu-shares", "-1", "busybox", "echo", "test")
+	c.Assert(err, check.NotNil, check.Commentf(out))
+	expected = "shares: invalid argument"
+	c.Assert(out, checker.Contains, expected)
+
+	out, _, err = dockerCmdWithError("run", "--cpu-shares", "99999999", "busybox", "echo", "test")
+	c.Assert(err, check.NotNil, check.Commentf(out))
+	expected = "The maximum allowed cpu-shares is"
+	c.Assert(out, checker.Contains, expected)
 }

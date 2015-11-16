@@ -2,24 +2,27 @@ package server
 
 import (
 	"crypto/tls"
-	"encoding/json"
-	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
-	"runtime"
 	"strings"
 
-	"github.com/gorilla/mux"
-
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/api"
-	"github.com/docker/docker/autogen/dockerversion"
+	"github.com/docker/docker/api/server/httputils"
+	"github.com/docker/docker/api/server/router"
+	"github.com/docker/docker/api/server/router/local"
+	"github.com/docker/docker/api/server/router/network"
+	"github.com/docker/docker/api/server/router/volume"
 	"github.com/docker/docker/daemon"
 	"github.com/docker/docker/pkg/sockets"
-	"github.com/docker/docker/pkg/version"
+	"github.com/docker/docker/utils"
+	"github.com/gorilla/mux"
+	"golang.org/x/net/context"
 )
+
+// versionMatcher defines a variable matcher to be parsed by the router
+// when a request is about to be served.
+const versionMatcher = "/v{version:[0-9.]+}"
 
 // Config provides the configuration for the API server
 type Config struct {
@@ -29,26 +32,39 @@ type Config struct {
 	Version     string
 	SocketGroup string
 	TLSConfig   *tls.Config
+	Addrs       []Addr
 }
 
 // Server contains instance details for the server
 type Server struct {
-	daemon  *daemon.Daemon
 	cfg     *Config
-	router  *mux.Router
 	start   chan struct{}
-	servers []serverCloser
+	servers []*HTTPServer
+	routers []router.Router
+}
+
+// Addr contains string representation of address and its protocol (tcp, unix...).
+type Addr struct {
+	Proto string
+	Addr  string
 }
 
 // New returns a new instance of the server based on the specified configuration.
-func New(cfg *Config) *Server {
-	srv := &Server{
+// It allocates resources which will be needed for ServeAPI(ports, unix-sockets).
+func New(cfg *Config) (*Server, error) {
+	s := &Server{
 		cfg:   cfg,
 		start: make(chan struct{}),
 	}
-	r := createRouter(srv)
-	srv.router = r
-	return srv
+	for _, addr := range cfg.Addrs {
+		srv, err := s.newServer(addr.Proto, addr.Addr)
+		if err != nil {
+			return nil, err
+		}
+		logrus.Debugf("Server created for HTTP on %s (%s)", addr.Proto, addr.Addr)
+		s.servers = append(s.servers, srv...)
+	}
+	return s, nil
 }
 
 // Close closes servers and thus stop receiving requests
@@ -60,39 +76,22 @@ func (s *Server) Close() {
 	}
 }
 
-type serverCloser interface {
-	Serve() error
-	Close() error
-}
-
-// ServeAPI loops through all of the protocols sent in to docker and spawns
-// off a go routine to setup a serving http.Server for each.
-func (s *Server) ServeAPI(protoAddrs []string) error {
-	var chErrors = make(chan error, len(protoAddrs))
-
-	for _, protoAddr := range protoAddrs {
-		protoAddrParts := strings.SplitN(protoAddr, "://", 2)
-		if len(protoAddrParts) != 2 {
-			return fmt.Errorf("bad format, expected PROTO://ADDR")
-		}
-		srv, err := s.newServer(protoAddrParts[0], protoAddrParts[1])
-		if err != nil {
-			return err
-		}
-		s.servers = append(s.servers, srv...)
-
-		for _, s := range srv {
-			logrus.Infof("Listening for HTTP on %s (%s)", protoAddrParts[0], protoAddrParts[1])
-			go func(s serverCloser) {
-				if err := s.Serve(); err != nil && strings.Contains(err.Error(), "use of closed network connection") {
-					err = nil
-				}
-				chErrors <- err
-			}(s)
-		}
+// ServeAPI loops through all initialized servers and spawns goroutine
+// with Serve() method for each.
+func (s *Server) ServeAPI() error {
+	var chErrors = make(chan error, len(s.servers))
+	for _, srv := range s.servers {
+		go func(srv *HTTPServer) {
+			var err error
+			logrus.Infof("API listen on %s", srv.l.Addr())
+			if err = srv.Serve(); err != nil && strings.Contains(err.Error(), "use of closed network connection") {
+				err = nil
+			}
+			chErrors <- err
+		}(srv)
 	}
 
-	for i := 0; i < len(protoAddrs); i++ {
+	for i := 0; i < len(s.servers); i++ {
 		err := <-chErrors
 		if err != nil {
 			return err
@@ -120,119 +119,11 @@ func (s *HTTPServer) Close() error {
 	return s.l.Close()
 }
 
-// HTTPAPIFunc is an adapter to allow the use of ordinary functions as Docker API endpoints.
-// Any function that has the appropriate signature can be register as a API endpoint (e.g. getVersion).
-type HTTPAPIFunc func(version version.Version, w http.ResponseWriter, r *http.Request, vars map[string]string) error
-
-func hijackServer(w http.ResponseWriter) (io.ReadCloser, io.Writer, error) {
-	conn, _, err := w.(http.Hijacker).Hijack()
-	if err != nil {
-		return nil, nil, err
-	}
-	// Flush the options to make sure the client sets the raw mode
-	conn.Write([]byte{})
-	return conn, conn, nil
-}
-
-func closeStreams(streams ...interface{}) {
-	for _, stream := range streams {
-		if tcpc, ok := stream.(interface {
-			CloseWrite() error
-		}); ok {
-			tcpc.CloseWrite()
-		} else if closer, ok := stream.(io.Closer); ok {
-			closer.Close()
-		}
-	}
-}
-
-// checkForJSON makes sure that the request's Content-Type is application/json.
-func checkForJSON(r *http.Request) error {
-	ct := r.Header.Get("Content-Type")
-
-	// No Content-Type header is ok as long as there's no Body
-	if ct == "" {
-		if r.Body == nil || r.ContentLength == 0 {
-			return nil
-		}
-	}
-
-	// Otherwise it better be json
-	if api.MatchesContentType(ct, "application/json") {
-		return nil
-	}
-	return fmt.Errorf("Content-Type specified (%s) must be 'application/json'", ct)
-}
-
-//If we don't do this, POST method without Content-type (even with empty body) will fail
-func parseForm(r *http.Request) error {
-	if r == nil {
-		return nil
-	}
-	if err := r.ParseForm(); err != nil && !strings.HasPrefix(err.Error(), "mime:") {
-		return err
-	}
-	return nil
-}
-
-func parseMultipartForm(r *http.Request) error {
-	if err := r.ParseMultipartForm(4096); err != nil && !strings.HasPrefix(err.Error(), "mime:") {
-		return err
-	}
-	return nil
-}
-
-func httpError(w http.ResponseWriter, err error) {
-	if err == nil || w == nil {
-		logrus.WithFields(logrus.Fields{"error": err, "writer": w}).Error("unexpected HTTP error handling")
-		return
-	}
-	statusCode := http.StatusInternalServerError
-	// FIXME: this is brittle and should not be necessary.
-	// If we need to differentiate between different possible error types, we should
-	// create appropriate error types with clearly defined meaning.
-	errStr := strings.ToLower(err.Error())
-	for keyword, status := range map[string]int{
-		"not found":             http.StatusNotFound,
-		"no such":               http.StatusNotFound,
-		"bad parameter":         http.StatusBadRequest,
-		"conflict":              http.StatusConflict,
-		"impossible":            http.StatusNotAcceptable,
-		"wrong login/password":  http.StatusUnauthorized,
-		"hasn't been activated": http.StatusForbidden,
-	} {
-		if strings.Contains(errStr, keyword) {
-			statusCode = status
-			break
-		}
-	}
-
-	logrus.WithFields(logrus.Fields{"statusCode": statusCode, "err": err}).Error("HTTP Error")
-	http.Error(w, err.Error(), statusCode)
-}
-
-// writeJSON writes the value v to the http response stream as json with standard
-// json encoding.
-func writeJSON(w http.ResponseWriter, code int, v interface{}) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	return json.NewEncoder(w).Encode(v)
-}
-
-func (s *Server) optionsHandler(version version.Version, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
-	w.WriteHeader(http.StatusOK)
-	return nil
-}
 func writeCorsHeaders(w http.ResponseWriter, r *http.Request, corsHeaders string) {
 	logrus.Debugf("CORS header is enabled and set to: %s", corsHeaders)
 	w.Header().Add("Access-Control-Allow-Origin", corsHeaders)
 	w.Header().Add("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, X-Registry-Auth")
-	w.Header().Add("Access-Control-Allow-Methods", "GET, POST, DELETE, PUT, OPTIONS")
-}
-
-func (s *Server) ping(version version.Version, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
-	_, err := w.Write([]byte{'O', 'K'})
-	return err
+	w.Header().Add("Access-Control-Allow-Methods", "HEAD, GET, POST, DELETE, PUT, OPTIONS")
 }
 
 func (s *Server) initTCPSocket(addr string) (l net.Listener, err error) {
@@ -248,150 +139,80 @@ func (s *Server) initTCPSocket(addr string) (l net.Listener, err error) {
 	return
 }
 
-func makeHTTPHandler(logging bool, localMethod string, localRoute string, handlerFunc HTTPAPIFunc, corsHeaders string, dockerVersion version.Version) http.HandlerFunc {
+func (s *Server) makeHTTPHandler(handler httputils.APIFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// log the request
-		logrus.Debugf("Calling %s %s", localMethod, localRoute)
+		// log the handler call
+		logrus.Debugf("Calling %s %s", r.Method, r.URL.Path)
 
-		if logging {
-			logrus.Infof("%s %s", r.Method, r.RequestURI)
+		// Define the context that we'll pass around to share info
+		// like the docker-request-id.
+		//
+		// The 'context' will be used for global data that should
+		// apply to all requests. Data that is specific to the
+		// immediate function being called should still be passed
+		// as 'args' on the function call.
+		ctx := context.Background()
+		handlerFunc := s.handleWithGlobalMiddlewares(handler)
+
+		vars := mux.Vars(r)
+		if vars == nil {
+			vars = make(map[string]string)
 		}
 
-		if strings.Contains(r.Header.Get("User-Agent"), "Docker-Client/") {
-			userAgent := strings.Split(r.Header.Get("User-Agent"), "/")
-
-			// v1.20 onwards includes the GOOS of the client after the version
-			// such as Docker/1.7.0 (linux)
-			if len(userAgent) == 2 && strings.Contains(userAgent[1], " ") {
-				userAgent[1] = strings.Split(userAgent[1], " ")[0]
-			}
-
-			if len(userAgent) == 2 && !dockerVersion.Equal(version.Version(userAgent[1])) {
-				logrus.Debugf("Warning: client and server don't have the same version (client: %s, server: %s)", userAgent[1], dockerVersion)
-			}
-		}
-		version := version.Version(mux.Vars(r)["version"])
-		if version == "" {
-			version = api.Version
-		}
-		if corsHeaders != "" {
-			writeCorsHeaders(w, r, corsHeaders)
-		}
-
-		if version.GreaterThan(api.Version) {
-			http.Error(w, fmt.Errorf("client is newer than server (client API version: %s, server API version: %s)", version, api.Version).Error(), http.StatusBadRequest)
-			return
-		}
-		if version.LessThan(api.MinVersion) {
-			http.Error(w, fmt.Errorf("client is too old, minimum supported API version is %s, please upgrade your client to a newer version", api.MinVersion).Error(), http.StatusBadRequest)
-			return
-		}
-
-		w.Header().Set("Server", "Docker/"+dockerversion.VERSION+" ("+runtime.GOOS+")")
-
-		if err := handlerFunc(version, w, r, mux.Vars(r)); err != nil {
-			logrus.Errorf("Handler for %s %s returned error: %s", localMethod, localRoute, err)
-			httpError(w, err)
+		if err := handlerFunc(ctx, w, r, vars); err != nil {
+			logrus.Errorf("Handler for %s %s returned error: %s", r.Method, r.URL.Path, utils.GetErrorMessage(err))
+			httputils.WriteError(w, err)
 		}
 	}
 }
 
+// InitRouters initializes a list of routers for the server.
+// Sets those routers as Handler for each server.
+func (s *Server) InitRouters(d *daemon.Daemon) {
+	s.addRouter(local.NewRouter(d))
+	s.addRouter(network.NewRouter(d))
+	s.addRouter(volume.NewRouter(d))
+
+	for _, srv := range s.servers {
+		srv.srv.Handler = s.CreateMux()
+	}
+}
+
+// addRouter adds a new router to the server.
+func (s *Server) addRouter(r router.Router) {
+	s.routers = append(s.routers, r)
+}
+
+// CreateMux initializes the main router the server uses.
 // we keep enableCors just for legacy usage, need to be removed in the future
-func createRouter(s *Server) *mux.Router {
-	r := mux.NewRouter()
+func (s *Server) CreateMux() *mux.Router {
+	m := mux.NewRouter()
 	if os.Getenv("DEBUG") != "" {
-		profilerSetup(r, "/debug/")
-	}
-	m := map[string]map[string]HTTPAPIFunc{
-		"HEAD": {
-			"/containers/{name:.*}/archive": s.headContainersArchive,
-		},
-		"GET": {
-			"/_ping":                          s.ping,
-			"/events":                         s.getEvents,
-			"/info":                           s.getInfo,
-			"/version":                        s.getVersion,
-			"/images/json":                    s.getImagesJSON,
-			"/images/search":                  s.getImagesSearch,
-			"/images/get":                     s.getImagesGet,
-			"/images/{name:.*}/get":           s.getImagesGet,
-			"/images/{name:.*}/history":       s.getImagesHistory,
-			"/images/{name:.*}/json":          s.getImagesByName,
-			"/containers/ps":                  s.getContainersJSON,
-			"/containers/json":                s.getContainersJSON,
-			"/containers/{name:.*}/export":    s.getContainersExport,
-			"/containers/{name:.*}/changes":   s.getContainersChanges,
-			"/containers/{name:.*}/json":      s.getContainersByName,
-			"/containers/{name:.*}/top":       s.getContainersTop,
-			"/containers/{name:.*}/logs":      s.getContainersLogs,
-			"/containers/{name:.*}/stats":     s.getContainersStats,
-			"/containers/{name:.*}/attach/ws": s.wsContainersAttach,
-			"/exec/{id:.*}/json":              s.getExecByID,
-			"/containers/{name:.*}/archive":   s.getContainersArchive,
-		},
-		"POST": {
-			"/auth":                         s.postAuth,
-			"/commit":                       s.postCommit,
-			"/build":                        s.postBuild,
-			"/images/create":                s.postImagesCreate,
-			"/images/load":                  s.postImagesLoad,
-			"/images/{name:.*}/push":        s.postImagesPush,
-			"/images/{name:.*}/tag":         s.postImagesTag,
-			"/containers/create":            s.postContainersCreate,
-			"/containers/{name:.*}/kill":    s.postContainersKill,
-			"/containers/{name:.*}/pause":   s.postContainersPause,
-			"/containers/{name:.*}/unpause": s.postContainersUnpause,
-			"/containers/{name:.*}/restart": s.postContainersRestart,
-			"/containers/{name:.*}/start":   s.postContainersStart,
-			"/containers/{name:.*}/stop":    s.postContainersStop,
-			"/containers/{name:.*}/wait":    s.postContainersWait,
-			"/containers/{name:.*}/resize":  s.postContainersResize,
-			"/containers/{name:.*}/attach":  s.postContainersAttach,
-			"/containers/{name:.*}/copy":    s.postContainersCopy,
-			"/containers/{name:.*}/exec":    s.postContainerExecCreate,
-			"/exec/{name:.*}/start":         s.postContainerExecStart,
-			"/exec/{name:.*}/resize":        s.postContainerExecResize,
-			"/containers/{name:.*}/rename":  s.postContainerRename,
-		},
-		"PUT": {
-			"/containers/{name:.*}/archive": s.putContainersArchive,
-		},
-		"DELETE": {
-			"/containers/{name:.*}": s.deleteContainers,
-			"/images/{name:.*}":     s.deleteImages,
-		},
-		"OPTIONS": {
-			"": s.optionsHandler,
-		},
+		profilerSetup(m, "/debug/")
 	}
 
-	// If "api-cors-header" is not given, but "api-enable-cors" is true, we set cors to "*"
-	// otherwise, all head values will be passed to HTTP handler
-	corsHeaders := s.cfg.CorsHeaders
-	if corsHeaders == "" && s.cfg.EnableCors {
-		corsHeaders = "*"
-	}
+	logrus.Debugf("Registering routers")
+	for _, apiRouter := range s.routers {
+		for _, r := range apiRouter.Routes() {
+			f := s.makeHTTPHandler(r.Handler())
 
-	for method, routes := range m {
-		for route, fct := range routes {
-			logrus.Debugf("Registering %s, %s", method, route)
-			// NOTE: scope issue, make sure the variables are local and won't be changed
-			localRoute := route
-			localFct := fct
-			localMethod := method
-
-			// build the handler function
-			f := makeHTTPHandler(s.cfg.Logging, localMethod, localRoute, localFct, corsHeaders, version.Version(s.cfg.Version))
-
-			// add the new route
-			if localRoute == "" {
-				r.Methods(localMethod).HandlerFunc(f)
-			} else {
-				r.Path("/v{version:[0-9.]+}" + localRoute).Methods(localMethod).HandlerFunc(f)
-				r.Path(localRoute).Methods(localMethod).HandlerFunc(f)
-			}
+			logrus.Debugf("Registering %s, %s", r.Method(), r.Path())
+			m.Path(versionMatcher + r.Path()).Methods(r.Method()).Handler(f)
+			m.Path(r.Path()).Methods(r.Method()).Handler(f)
 		}
 	}
 
-	return r
+	return m
+}
+
+// AcceptConnections allows clients to connect to the API server.
+// Referenced Daemon is notified about this server, and waits for the
+// daemon acknowledgement before the incoming connections are accepted.
+func (s *Server) AcceptConnections() {
+	// close the lock so the listeners start accepting connections
+	select {
+	case <-s.start:
+	default:
+		close(s.start)
+	}
 }

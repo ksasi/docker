@@ -2,7 +2,7 @@
 
 Want to hack on Docker? Awesome!  We have a contributor's guide that explains
 [setting up a Docker development environment and the contribution
-process](https://docs.docker.com/project/who-written-for/). 
+process](https://docs.docker.com/opensource/project/who-written-for/). 
 
 ![Contributors guide](docs/static_files/contributors.png)
 
@@ -25,7 +25,7 @@ The Docker maintainers take security seriously. If you discover a security
 issue, please bring it to their attention right away!
 
 Please **DO NOT** file a public issue, instead send your report privately to
-[security@docker.com](mailto:security@docker.com), 
+[security@docker.com](mailto:security@docker.com).
 
 Security reports are greatly appreciated and we will publicly thank you for it.
 We also like to send gifts&mdash;if you're into Docker schwag, make sure to let
@@ -42,14 +42,17 @@ and will thank you for it!
 Check that [our issue database](https://github.com/docker/docker/issues)
 doesn't already include that problem or suggestion before submitting an issue.
 If you find a match, add a quick "+1" or "I have this problem too." Doing this
-helps prioritize the most common problems and requests.
+helps prioritize the most common problems and requests. **DO NOT DO THAT** to
+subscribe to the issue unless you have something meaningful to add to the
+conversation. The best way to subscribe the issue is by clicking Subscribe
+button in top right of the page.
 
 When reporting issues, please include your host OS (Ubuntu 12.04, Fedora 19,
 etc). Please include:
 
 * The output of `uname -a`.
 * The output of `docker version`.
-* The output of `docker -D info`.
+* The output of `docker info`.
 
 Please also include the steps required to reproduce the problem if possible and
 applicable. This information will help us review and fix your issue faster.
@@ -108,7 +111,7 @@ anybody starts working on it.
 We are always thrilled to receive pull requests. We do our best to process them
 quickly. If your pull request is not accepted on the first try,
 don't get discouraged! Our contributor's guide explains [the review process we
-use for simple changes](https://docs.docker.com/project/make-a-contribution/).
+use for simple changes](https://docs.docker.com/opensource/workflow/make-a-contribution/).
 
 ### Design and cleanup proposals
 
@@ -116,8 +119,8 @@ You can propose new designs for existing Docker features. You can also design
 entirely new features. We really appreciate contributors who want to refactor or
 otherwise cleanup our project. For information on making these types of
 contributions, see [the advanced contribution
-section](https://docs.docker.com/project/advanced-contributing/) in the
-contributors guide.
+section](https://docs.docker.com/opensource/workflow/advanced-contributing/) in
+the contributors guide.
 
 We try hard to keep Docker lean and focused. Docker can't do everything for
 everybody. This means that we might decide against incorporating a new feature.
@@ -138,7 +141,7 @@ However, there might be a way to implement that feature *on top of* Docker.
         IRC is a rich chat protocol but it can overwhelm new users. You can search
         <a href="https://botbot.me/freenode/docker/#" target="_blank">our chat archives</a>.
       </p>
-      Read our <a href="https://docs.docker.com/project/get-help/#irc-quickstart" target="_blank">IRC quickstart guide</a> for an easy way to get started.
+      Read our <a href="https://docs.docker.com/opensource/get-help/#irc-quickstart" target="_blank">IRC quickstart guide</a> for an easy way to get started.
     </td>
   </tr>
   <tr>
@@ -163,7 +166,7 @@ However, there might be a way to implement that feature *on top of* Docker.
   <tr>
     <td>Stack Overflow</td>
     <td>
-      Stack Overflow has over 7000K Docker questions listed. We regularly
+      Stack Overflow has over 17000 Docker questions listed. We regularly
       monitor <a href="https://stackoverflow.com/search?tab=newest&q=docker" target="_blank">Docker questions</a>
       and so do many other knowledgeable Docker users.
     </td>
@@ -183,14 +186,14 @@ Fork the repository and make changes on your fork in a feature branch:
 
 Submit unit tests for your changes. Go has a great test framework built in; use
 it! Take a look at existing tests for inspiration. [Run the full test
-suite](https://docs.docker.com/project/test-and-docs/) on your branch before
+suite](https://docs.docker.com/opensource/project/test-and-docs/) on your branch before
 submitting a pull request.
 
 Update the documentation when creating or modifying features. Test your
 documentation changes for clarity, concision, and correctness, as well as a
 clean documentation build. See our contributors guide for [our style
-guide](https://docs.docker.com/project/doc-style) and instructions on [building
-the documentation](https://docs.docker.com/project/test-and-docs/#build-and-test-the-documentation).
+guide](https://docs.docker.com/opensource/doc-style) and instructions on [building
+the documentation](https://docs.docker.com/opensource/project/test-and-docs/#build-and-test-the-documentation).
 
 Write clean code. Universally formatted code promotes ease of writing, reading,
 and maintenance. Always run `gofmt -s -w file.go` on each changed file before
@@ -224,7 +227,7 @@ high majority of submissions should have a single commit, so if in doubt: squash
 down to one.
 
 After every commit, [make sure the test suite passes]
-((https://docs.docker.com/project/test-and-docs/)). Include documentation
+(https://docs.docker.com/opensource/project/test-and-docs/). Include documentation
 changes in the same pull request so that a revert would remove all traces of
 the feature or fix.
 

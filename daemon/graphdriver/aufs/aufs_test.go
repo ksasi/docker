@@ -26,7 +26,7 @@ func init() {
 }
 
 func testInit(dir string, t *testing.T) graphdriver.Driver {
-	d, err := Init(dir, nil)
+	d, err := Init(dir, nil, nil, nil)
 	if err != nil {
 		if err == graphdriver.ErrNotSupported {
 			t.Skip(err)
@@ -198,7 +198,7 @@ func TestMountedFalseResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	response, err := d.mounted("1")
+	response, err := d.mounted(d.active["1"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestMountedTrueReponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	response, err := d.mounted("2")
+	response, err := d.mounted(d.active["2"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestRemoveMountedDir(t *testing.T) {
 		t.Fatal("mntPath should not be empty string")
 	}
 
-	mounted, err := d.mounted("2")
+	mounted, err := d.mounted(d.active["2"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,6 +635,88 @@ func TestApplyDiff(t *testing.T) {
 	}
 	if _, err := os.Stat(path.Join(mountPoint, "test_file")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHardlinks(t *testing.T) {
+	// Copy 2 layers that have linked files to new layers and check if hardlink are preserved
+	d := newDriver(t)
+	defer os.RemoveAll(tmp)
+	defer d.Cleanup()
+
+	origFile := "test_file"
+	linkedFile := "linked_file"
+
+	if err := d.Create("source-1", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	mountPath, err := d.Get("source-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.Create(path.Join(mountPath, origFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	layerTar1, err := d.Diff("source-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.Create("source-2", "source-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	mountPath, err = d.Get("source-2", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Link(path.Join(mountPath, origFile), path.Join(mountPath, linkedFile)); err != nil {
+		t.Fatal(err)
+	}
+
+	layerTar2, err := d.Diff("source-2", "source-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.Create("target-1", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := d.ApplyDiff("target-1", "", layerTar1); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.Create("target-2", "target-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := d.ApplyDiff("target-2", "target-1", layerTar2); err != nil {
+		t.Fatal(err)
+	}
+
+	mountPath, err = d.Get("target-2", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fi1, err := os.Lstat(path.Join(mountPath, origFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi2, err := os.Lstat(path.Join(mountPath, linkedFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !os.SameFile(fi1, fi2) {
+		t.Fatal("Target files are not linked")
 	}
 }
 

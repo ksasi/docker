@@ -7,7 +7,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/autogen/dockerversion"
+	"github.com/docker/docker/dockerversion"
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/parsers/kernel"
 	"github.com/docker/docker/pkg/parsers/operatingsystem"
@@ -17,14 +17,8 @@ import (
 	"github.com/docker/docker/utils"
 )
 
+// SystemInfo returns information about the host server the daemon is running on.
 func (daemon *Daemon) SystemInfo() (*types.Info, error) {
-	images := daemon.Graph().Map()
-	var imgcount int
-	if images == nil {
-		imgcount = 0
-	} else {
-		imgcount = len(images)
-	}
 	kernelVersion := "<unknown>"
 	if kv, err := kernel.GetKernelVersion(); err == nil {
 		kernelVersion = kv.String()
@@ -50,19 +44,22 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 		logrus.Errorf("Could not read system memory info: %v", err)
 	}
 
-	// if we still have the original dockerinit binary from before we copied it locally, let's return the path to that, since that's more intuitive (the copied path is trivial to derive by hand given VERSION)
+	// if we still have the original dockerinit binary from before
+	// we copied it locally, let's return the path to that, since
+	// that's more intuitive (the copied path is trivial to derive
+	// by hand given VERSION)
 	initPath := utils.DockerInitPath("")
 	if initPath == "" {
 		// if that fails, we'll just return the path from the daemon
-		initPath = daemon.SystemInitPath()
+		initPath = daemon.systemInitPath()
 	}
 
-	sysInfo := sysinfo.New(false)
+	sysInfo := sysinfo.New(true)
 
 	v := &types.Info{
 		ID:                 daemon.ID,
 		Containers:         len(daemon.List()),
-		Images:             imgcount,
+		Images:             len(daemon.Graph().Map()),
 		Driver:             daemon.GraphDriver().String(),
 		DriverStatus:       daemon.GraphDriver().Status(),
 		IPv4Forwarding:     !sysInfo.IPv4ForwardingDisabled,
@@ -79,13 +76,19 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 		OperatingSystem:    operatingSystem,
 		IndexServerAddress: registry.IndexServer,
 		RegistryConfig:     daemon.RegistryService.Config,
-		InitSha1:           dockerversion.INITSHA1,
+		InitSha1:           dockerversion.InitSHA1,
 		InitPath:           initPath,
 		NCPU:               runtime.NumCPU(),
 		MemTotal:           meminfo.MemTotal,
-		DockerRootDir:      daemon.Config().Root,
-		Labels:             daemon.Config().Labels,
+		DockerRootDir:      daemon.config().Root,
+		Labels:             daemon.config().Labels,
 		ExperimentalBuild:  utils.ExperimentalBuild(),
+		ServerVersion:      dockerversion.Version,
+		ClusterStore:       daemon.config().ClusterStore,
+		ClusterAdvertise:   daemon.config().ClusterAdvertise,
+		HTTPProxy:          os.Getenv("http_proxy"),
+		HTTPSProxy:         os.Getenv("https_proxy"),
+		NoProxy:            os.Getenv("no_proxy"),
 	}
 
 	// TODO Windows. Refactor this more once sysinfo is refactored into
@@ -98,17 +101,10 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 		v.OomKillDisable = sysInfo.OomKillDisable
 		v.CPUCfsPeriod = sysInfo.CPUCfsPeriod
 		v.CPUCfsQuota = sysInfo.CPUCfsQuota
+		v.CPUShares = sysInfo.CPUShares
+		v.CPUSet = sysInfo.Cpuset
 	}
 
-	if httpProxy := os.Getenv("http_proxy"); httpProxy != "" {
-		v.HTTPProxy = httpProxy
-	}
-	if httpsProxy := os.Getenv("https_proxy"); httpsProxy != "" {
-		v.HTTPSProxy = httpsProxy
-	}
-	if noProxy := os.Getenv("no_proxy"); noProxy != "" {
-		v.NoProxy = noProxy
-	}
 	if hostname, err := os.Hostname(); err == nil {
 		v.Name = hostname
 	}

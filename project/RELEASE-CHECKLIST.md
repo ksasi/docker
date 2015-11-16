@@ -203,7 +203,18 @@ That last command will give you the proper link to visit to ensure that you
 open the PR against the "release" branch instead of accidentally against
 "master" (like so many brave souls before you already have).
 
-### 7. Publish release candidate binaries
+### 7. Build release candidate rpms and debs
+
+```bash
+docker build -t docker .
+docker run \
+    --rm -t --privileged \
+    -v $(pwd)/bundles:/go/src/github.com/docker/docker/bundles \
+    docker \
+    hack/make.sh binary build-deb build-rpm
+```
+
+### 8. Publish release candidate binaries
 
 To run this you will need access to the release credentials. Get them from the
 Core maintainers.
@@ -214,20 +225,19 @@ Replace "..." with the respective credentials:
 docker build -t docker .
 
 docker run \
-       -e AWS_S3_BUCKET=test.docker.com \
-       -e AWS_ACCESS_KEY="..." \
-       -e AWS_SECRET_KEY="..." \
-       -e GPG_PASSPHRASE="..." \
-       -i -t --privileged \
-       docker \
-       hack/release.sh
+    -e AWS_S3_BUCKET=test.docker.com \ # static binaries are still pushed to s3
+    -e AWS_ACCESS_KEY="..." \
+    -e AWS_SECRET_KEY="..." \
+    -i -t --privileged \
+    docker \
+    hack/release.sh
 ```
 
-It will run the test suite, build the binaries and packages, and upload to the
-specified bucket, so this is a good time to verify that you're running against
-**test**.docker.com.
+It will run the test suite, build the binaries and upload to the specified bucket,
+so this is a good time to verify that you're running against **test**.docker.com.
 
-After the binaries and packages are uploaded to test.docker.com, make sure
+After the binaries are uploaded to test.docker.com and the packages are on
+apt.dockerproject.org and yum.dockerproject.org, make sure
 they get tested in both Ubuntu and Debian for any obvious installation
 issues or runtime issues.
 
@@ -242,7 +252,7 @@ Announcing on multiple medias is the best way to get some help testing! An easy
 way to get some useful links for sharing:
 
 ```bash
-echo "Ubuntu/Debian: https://test.docker.com/ubuntu or curl -sSL https://test.docker.com/ | sh"
+echo "Ubuntu/Debian: curl -sSL https://test.docker.com/ | sh"
 echo "Linux 64bit binary: https://test.docker.com/builds/Linux/x86_64/docker-${VERSION#v}"
 echo "Darwin/OSX 64bit client binary: https://test.docker.com/builds/Darwin/x86_64/docker-${VERSION#v}"
 echo "Darwin/OSX 32bit client binary: https://test.docker.com/builds/Darwin/i386/docker-${VERSION#v}"
@@ -257,7 +267,7 @@ We recommend announcing the release candidate on:
 - The [docker-maintainers](https://groups.google.com/a/dockerproject.org/forum/#!forum/maintainers) group
 - Any social media that can bring some attention to the release candidate
 
-### 8. Iterate on successive release candidates
+### 9. Iterate on successive release candidates
 
 Spend several days along with the community explicitly investing time and
 resources to try and break Docker in every possible way, documenting any
@@ -307,7 +317,7 @@ git push -f $GITHUBUSER bump_$VERSION
 Repeat step 6 to tag the code, publish new binaries, announce availability, and
 get help testing.
 
-### 9. Finalize the bump branch
+### 10. Finalize the bump branch
 
 When you're happy with the quality of a release candidate, you can move on and
 create the real thing.
@@ -323,25 +333,36 @@ git commit --amend
 
 You will then repeat step 6 to publish the binaries to test
 
-### 10. Get 2 other maintainers to validate the pull request
+### 11. Get 2 other maintainers to validate the pull request
 
-### 11. Publish final binaries
+### 12. Build final rpms and debs
+
+```bash
+docker build -t docker .
+docker run \
+    --rm -t --privileged \
+    -v $(pwd)/bundles:/go/src/github.com/docker/docker/bundles \
+    docker \
+    hack/make.sh binary build-deb build-rpm
+```
+
+### 13. Publish final binaries
 
 Once they're tested and reasonably believed to be working, run against
 get.docker.com:
 
 ```bash
+docker build -t docker .
 docker run \
-       -e AWS_S3_BUCKET=get.docker.com \
-       -e AWS_ACCESS_KEY="..." \
-       -e AWS_SECRET_KEY="..." \
-       -e GPG_PASSPHRASE="..." \
-       -i -t --privileged \
-       docker \
-       hack/release.sh
+    -e AWS_S3_BUCKET=get.docker.com \ # static binaries are still pushed to s3
+    -e AWS_ACCESS_KEY="..." \
+    -e AWS_SECRET_KEY="..." \
+    -i -t --privileged \
+    docker \
+    hack/release.sh
 ```
 
-### 12. Apply tag
+### 14. Apply tag and create release
 
 It's very important that we don't make the tag until after the official
 release is uploaded to get.docker.com!
@@ -351,32 +372,28 @@ git tag -a $VERSION -m $VERSION bump_$VERSION
 git push origin $VERSION
 ```
 
-### 13. Go to github to merge the `bump_$VERSION` branch into release
+Once the tag is pushed, go to GitHub and create a [new release](https://github.com/docker/docker/releases/new).
+If the tag is for an RC make sure you check `This is a pre-release` at the bottom of the form.
+
+Select the tag that you just pushed as the version and paste the changelog in the description of the release.
+You can see examples in this two links:
+
+https://github.com/docker/docker/releases/tag/v1.8.0
+https://github.com/docker/docker/releases/tag/v1.8.0-rc3
+
+### 15. Go to github to merge the `bump_$VERSION` branch into release
 
 Don't forget to push that pretty blue button to delete the leftover
 branch afterwards!
 
-### 14. Update the docs branch
+### 16. Update the docs branch
 
-If this is a MAJOR.MINOR.0 release, you need to make an branch for the previous release's
-documentation:
-
-```bash
-git checkout -b docs-$PREVIOUS_MAJOR_MINOR
-git fetch
-git reset --hard origin/docs
-git push -f origin docs-$PREVIOUS_MAJOR_MINOR
-```
-
-You will need the `awsconfig` file added to the `docs/` directory to contain the
-s3 credentials for the bucket you are deploying to.
+You will need to point the docs branch to the newly created release tag:
 
 ```bash
-git checkout -b docs release || git checkout docs
-git fetch
-git reset --hard origin/release
+git checkout origin/docs
+git reset --hard origin/$VERSION
 git push -f origin docs
-make AWS_S3_BUCKET=docs.docker.com BUILD_ROOT=yes DISTRIBUTION_ID=C2K6......FL2F docs-release
 ```
 
 The docs will appear on https://docs.docker.com/ (though there may be cached
@@ -386,9 +403,9 @@ For more information about documentation releases, see `docs/README.md`.
 Note that the new docs will not appear live on the site until the cache (a complex,
 distributed CDN system) is flushed. The `make docs-release` command will do this
 _if_ the `DISTRIBUTION_ID` is set correctly - this will take at least 15 minutes to run
-and you can check its progress with the CDN Cloudfront Chrome addin.
+and you can check its progress with the CDN Cloudfront Chrome addon.
 
-### 15. Create a new pull request to merge your bump commit back into master
+### 17. Create a new pull request to merge your bump commit back into master
 
 ```bash
 git checkout master
@@ -402,14 +419,14 @@ echo "https://github.com/$GITHUBUSER/docker/compare/docker:master...$GITHUBUSER:
 Again, get two maintainers to validate, then merge, then push that pretty
 blue button to delete your branch.
 
-### 16. Update the VERSION files
+### 18. Update the VERSION files
 
 Now that version X.Y.Z is out, time to start working on the next! Update the
 content of the `VERSION` file to be the next minor (incrementing Y) and add the
 `-dev` suffix. For example, after 1.5.0 release, the `VERSION` file gets
 updated to `1.6.0-dev` (as in "1.6.0 in the making").
 
-### 17. Rejoice and Evangelize!
+### 19. Rejoice and Evangelize!
 
 Congratulations! You're done.
 

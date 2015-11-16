@@ -13,7 +13,6 @@ fi
 exec 41>&1 42>&2
 
 export DOCKER_GRAPHDRIVER=${DOCKER_GRAPHDRIVER:-vfs}
-export DOCKER_EXECDRIVER=${DOCKER_EXECDRIVER:-native}
 export DOCKER_USERLANDPROXY=${DOCKER_USERLANDPROXY:-true}
 
 # example usage: DOCKER_STORAGE_OPTS="dm.basesize=20G,dm.loopdatasize=200G"
@@ -24,6 +23,12 @@ if [ -n "$DOCKER_STORAGE_OPTS" ]; then
 		storage_params="--storage-opt $i $storage_params"
 	done
 	unset IFS
+fi
+
+# example usage: DOCKER_STORAGE_OPTS="dm.basesize=20G,dm.loopdatasize=200G"
+extra_params=""
+if [ "$DOCKER_REMAP_ROOT" ]; then
+	extra_params="--userns-remap $DOCKER_REMAP_ROOT"
 fi
 
 if [ -z "$DOCKER_TEST_HOST" ]; then
@@ -43,10 +48,10 @@ if [ -z "$DOCKER_TEST_HOST" ]; then
 		docker daemon --debug \
 		--host "$DOCKER_HOST" \
 		--storage-driver "$DOCKER_GRAPHDRIVER" \
-		--exec-driver "$DOCKER_EXECDRIVER" \
 		--pidfile "$DEST/docker.pid" \
 		--userland-proxy="$DOCKER_USERLANDPROXY" \
 		$storage_params \
+		$extra_params \
 			&> "$DEST/docker.log"
 	) &
 	# make sure that if the script exits unexpectedly, we stop this daemon we just started

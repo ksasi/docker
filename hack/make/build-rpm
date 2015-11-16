@@ -24,6 +24,11 @@ set -e
 		rpmRelease="0.${rcVersion}.rc${rcVersion}"
 	fi
 
+	DOCKER_GITCOMMIT=$(git rev-parse --short HEAD)
+	if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+		DOCKER_GITCOMMIT="$DOCKER_GITCOMMIT-dirty"
+	fi
+
 	# if we have a "-dev" suffix or have change in Git, let's make this package version more complex so it works better
 	if [[ "$VERSION" == *-dev ]] || [ -n "$(git status --porcelain)" ]; then
 		gitUnix="$(git log -1 --pretty='%at')"
@@ -40,6 +45,20 @@ set -e
 	# if go-md2man is available, pre-generate the man pages
 	./man/md2man-all.sh -q || true
 	# TODO decide if it's worth getting go-md2man in _each_ builder environment to avoid this
+
+	# Convert the CHANGELOG.md file into RPM changelog format
+	VERSION_REGEX="^\W\W (.*) \((.*)\)$"
+	ENTRY_REGEX="^[-+*] (.*)$"
+	while read -r line || [[ -n "$line" ]]; do
+		if [ -z "$line" ]; then continue; fi
+		if [[ "$line" =~ $VERSION_REGEX ]]; then
+			echo >> contrib/builder/rpm/changelog
+			echo "* `date -d ${BASH_REMATCH[2]} '+%a %b %d %Y'` ${rpmPackager} - ${BASH_REMATCH[1]}" >> contrib/builder/rpm/changelog
+		fi
+		if [[ "$line" =~ $ENTRY_REGEX ]]; then
+			echo "- ${BASH_REMATCH[1]//\`}" >> contrib/builder/rpm/changelog
+		fi
+	done < CHANGELOG.md
 
 	# TODO add a configurable knob for _which_ rpms to build so we don't have to modify the file or build all of them every time we need to test
 	for dir in contrib/builder/rpm/*/; do
@@ -60,14 +79,34 @@ set -e
 			echo 'ENV DOCKER_EXPERIMENTAL 1' >> "$DEST/$version/Dockerfile.build"
 		fi
 		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
-			RUN mkdir -p /root/rpmbuild/SOURCES
+			RUN mkdir -p /root/rpmbuild/SOURCES \
+				&& echo '%_topdir /root/rpmbuild' > /root/.rpmmacros
 			WORKDIR /root/rpmbuild
 			RUN ln -sfv /usr/src/${rpmName}/hack/make/.build-rpm SPECS
-			RUN tar -cz -C /usr/src -f /root/rpmbuild/SOURCES/${rpmName}.tar.gz ${rpmName}
 			WORKDIR /root/rpmbuild/SPECS
-			RUN { echo '* $rpmDate $rpmPackager $rpmVersion-$rpmRelease'; echo '* Version: $VERSION'; } >> ${rpmName}.spec && tail >&2 ${rpmName}.spec
-			RUN rpmbuild -ba --define '_release $rpmRelease' --define '_version $rpmVersion' --define '_origversion $VERSION' ${rpmName}.spec
+			RUN tar -cz -C /usr/src -f /root/rpmbuild/SOURCES/${rpmName}.tar.gz ${rpmName}
+			RUN { cat /usr/src/${rpmName}/contrib/builder/rpm/changelog; } >> ${rpmName}.spec && tail >&2 ${rpmName}.spec
+			RUN rpmbuild -ba \
+				--define '_release $rpmRelease' \
+				--define '_version $rpmVersion' \
+				--define '_origversion $VERSION' \
+				--define '_experimental ${DOCKER_EXPERIMENTAL:-0}' \
+				${rpmName}.spec
 		EOF
+		# selinux policy referencing systemd things won't work on non-systemd versions
+		# of centos or rhel, which we don't support anyways
+		if [ "${suite%.*}" -gt 6 ] && [[ "$version" != opensuse* ]]; then
+			cat >> "$DEST/$version/Dockerfile.build" <<-EOF
+				RUN tar -cz -C /usr/src/${rpmName}/contrib -f /root/rpmbuild/SOURCES/${rpmName}-selinux.tar.gz ${rpmName}-selinux
+				RUN { echo '* $rpmDate $rpmPackager $rpmVersion-$rpmRelease'; echo '* Version: $VERSION'; } >> ${rpmName}-selinux.spec && tail >&2 ${rpmName}-selinux.spec
+				RUN rpmbuild -ba \
+						--define '_gitcommit $DOCKER_GITCOMMIT' \
+						--define '_release $rpmRelease' \
+						--define '_version $rpmVersion' \
+						--define '_origversion $VERSION' \
+						${rpmName}-selinux.spec
+			EOF
+		fi
 		tempImage="docker-temp/build-rpm:$version"
 		( set -x && docker build -t "$tempImage" -f $DEST/$version/Dockerfile.build . )
 		docker run --rm "$tempImage" bash -c 'cd /root/rpmbuild && tar -c *RPMS' | tar -xvC "$DEST/$version"

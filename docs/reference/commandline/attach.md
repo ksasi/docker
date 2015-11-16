@@ -5,7 +5,6 @@ description = "The attach command description and usage"
 keywords = ["attach, running, container"]
 [menu.main]
 parent = "smn_cli"
-weight=1
 +++
 <![end-metadata]-->
 
@@ -15,6 +14,7 @@ weight=1
 
     Attach to a running container
 
+      --help=false        Print usage
       --no-stdin=false    Do not attach STDIN
       --sig-proxy=true    Proxy all received signals to the process
 
@@ -22,7 +22,7 @@ The `docker attach` command allows you to attach to a running container using
 the container's ID or name, either to view its ongoing output or to control it
 interactively. You can attach to the same contained process multiple times
 simultaneously, screen sharing style, or quickly view the progress of your
-daemonized process.
+detached  process.
 
 You can detach from the container and leave it running with `CTRL-p CTRL-q`
 (for a quiet exit) or with `CTRL-c` if `--sig-proxy` is false.
@@ -88,4 +88,3 @@ process is returned by the `docker attach` command to its caller too:
     13
     $ docker ps -a | grep test
     275c44472aeb        debian:7            "/bin/bash"         26 seconds ago      Exited (13) 17 seconds ago                         test
-

@@ -15,8 +15,7 @@ weight = 1
 
  - The Remote API has replaced `rcli`.
  - The daemon listens on `unix:///var/run/docker.sock` but you can
-   [Bind Docker to another host/port or a Unix socket](
-   /articles/basics/#bind-docker-to-another-hostport-or-a-unix-socket).
+   [Bind Docker to another host/port or a Unix socket](../../userguide/basics.md#bind-docker-to-another-host-port-or-a-unix-socket).
  - The API tends to be REST. However, for some complex commands, like `attach`
    or `pull`, the HTTP connection is hijacked to transport `stdout`,
    `stdin` and `stderr`.
@@ -61,7 +60,7 @@ List containers
          },
          {
                  "Id": "9cd87474be90",
-                 "Names":["/coolName"]
+                 "Names":["/coolName"],
                  "Image": "ubuntu:latest",
                  "Command": "echo 222222",
                  "Created": 1367854155,
@@ -73,7 +72,7 @@ List containers
          },
          {
                  "Id": "3176a2479c92",
-                 "Names":["/sleepy_dog"]
+                 "Names":["/sleepy_dog"],
                  "Image": "ubuntu:latest",
                  "Command": "echo 3333333333333333",
                  "Created": 1367854154,
@@ -85,7 +84,7 @@ List containers
          },
          {
                  "Id": "4cb07b47f9fb",
-                 "Names":["/running_cat"]
+                 "Names":["/running_cat"],
                  "Image": "ubuntu:latest",
                  "Command": "echo 444444444444444444444444444444444",
                  "Created": 1367854152,
@@ -141,7 +140,10 @@ Create a container
            "Tty": false,
            "OpenStdin": false,
            "StdinOnce": false,
-           "Env": null,
+           "Env": [
+                   "FOO=bar",
+                   "BAZ=quux"
+           ],
            "Cmd": [
                    "date"
            ],
@@ -174,6 +176,7 @@ Create a container
              "MemorySwap": 0,
              "CpuShares": 512,
              "CpuPeriod": 100000,
+             "CpuQuota": 50000,
              "CpusetCpus": "0,1",
              "CpusetMems": "0,1",
              "BlkioWeight": 300,
@@ -205,7 +208,7 @@ Create a container
       Content-Type: application/json
 
       {
-           "Id":"e90e34656806"
+           "Id":"e90e34656806",
            "Warnings":[]
       }
 
@@ -217,11 +220,12 @@ Json Parameters:
       for the container.
 -   **User** - A string value specifying the user inside the container.
 -   **Memory** - Memory limit in bytes.
--   **MemorySwap**- Total memory limit (memory + swap); set `-1` to disable swap
+-   **MemorySwap** - Total memory limit (memory + swap); set `-1` to disable swap
       You must use this with `memory` and make the swap value larger than `memory`.
 -   **CpuShares** - An integer value containing the container's CPU Shares
       (ie. the relative weight vs other containers).
 -   **CpuPeriod** - The length of a CPU period in microseconds.
+-   **CpuQuota** - Microseconds of CPU time that the container can get in a CPU period.
 -   **Cpuset** - Deprecated please don't use. Use `CpusetCpus` instead. 
 -   **CpusetCpus** - String value containing the `cgroups CpusetCpus` to use.
 -   **CpusetMems** - Memory nodes (MEMs) in which to allow execution (0-3, 0,1). Only effective on NUMA systems.
@@ -234,7 +238,7 @@ Json Parameters:
 -   **Tty** - Boolean value, Attach standard streams to a `tty`, including `stdin` if it is not closed.
 -   **OpenStdin** - Boolean value, opens stdin,
 -   **StdinOnce** - Boolean value, close `stdin` after the 1 attached client disconnects.
--   **Env** - A list of environment variables in the form of `VAR=value`
+-   **Env** - A list of environment variables in the form of `["VAR=value"[,"VAR2=value2"]]`
 -   **Labels** - Adds a map of labels to a container. To specify a map: `{"key":"value"[,"key2":"value2"]}`
 -   **Cmd** - Command to run specified as a string or an array of strings.
 -   **Entrypoint** - Set the entry point for the container as a string or an array
@@ -289,7 +293,7 @@ Json Parameters:
           `{ "PathOnHost": "/dev/deviceName", "PathInContainer": "/dev/deviceName", "CgroupPermissions": "mrw"}`
     -   **Ulimits** - A list of ulimits to set in the container, specified as
           `{ "Name": <name>, "Soft": <soft limit>, "Hard": <hard limit> }`, for example:
-          `Ulimits: { "Name": "nofile", "Soft": 1024, "Hard", 2048 }}`
+          `Ulimits: { "Name": "nofile", "Soft": 1024, "Hard": 2048 }`
     -   **SecurityOpt**: A list of string values to customize labels for MLS
         systems, such as SELinux.
     -   **LogConfig** - Log configuration for the container, specified as a JSON object in the form
@@ -504,7 +508,7 @@ Status Codes:
 Get `stdout` and `stderr` logs from the container ``id``
 
 > **Note**:
-> This endpoint works only for containers with `json-file` logging driver.
+> This endpoint works only for containers with the `json-file` or `journald` logging drivers.
 
 **Example request**:
 
@@ -925,7 +929,7 @@ Status Codes:
 
     When using the TTY setting is enabled in
     [`POST /containers/create`
-    ](/reference/api/docker_remote_api_v1.9/#create-a-container "POST /containers/create"),
+    ](#create-a-container),
     the stream is the raw data from the process PTY and client's `stdin`.
     When the TTY is disabled, then the stream is multiplexed to separate
     `stdout` and `stderr`.
@@ -1220,7 +1224,8 @@ Status Codes:
          "Id": "8dbd9e392a964056420e5d58ca5cc376ef18e2de93b5cc90e868a1bbc8318c1c",
          "Created": 1365714795,
          "Size": 131506275,
-         "VirtualSize": 131506275
+         "VirtualSize": 131506275,
+         "Labels": {}
       },
       {
          "RepoTags": [
@@ -1231,7 +1236,10 @@ Status Codes:
          "Id": "b750fe79269d2ec9a3c593ef05b4332b1d1a02a62b4accb2c21d589ff2f5f2dc",
          "Created": 1364102658,
          "Size": 24653,
-         "VirtualSize": 180116135
+         "VirtualSize": 180116135,
+         "Labels": {
+            "com.example.version": "v1"
+         }
       }
     ]
 
@@ -1257,7 +1265,8 @@ Status Codes:
           "playdate:latest"
         ],
         "Size": 0,
-        "VirtualSize": 2429728
+        "VirtualSize": 2429728,
+        "Labels": {}
       }
     ]
 
@@ -1314,7 +1323,7 @@ the path to the alternate build instructions file to use.
 
 The archive may include any number of other files,
 which are accessible in the build context (See the [*ADD build
-command*](/reference/builder/#dockerbuilder)).
+command*](../../reference/builder.md#dockerbuilder)).
 
 The build is canceled if the client drops the connection by quitting
 or being killed.
@@ -1337,11 +1346,34 @@ Query Parameters:
 -   **memswap** - Total memory (memory + swap), `-1` to disable swap.
 -   **cpushares** - CPU shares (relative weight).
 -   **cpusetcpus** - CPUs in which to allow execution (e.g., `0-3`, `0,1`).
+-   **cpuperiod** - The length of a CPU period in microseconds.
+-   **cpuquota** - Microseconds of CPU time that the container can get in a CPU period.
 
     Request Headers:
 
 -   **Content-type** – Set to `"application/tar"`.
--   **X-Registry-Config** – base64-encoded ConfigFile object
+-   **X-Registry-Config** – A base64-url-safe-encoded Registry Auth Config JSON
+        object with the following structure:
+
+            {
+                "docker.example.com": {
+                    "username": "janedoe",
+                    "password": "hunter2"
+                },
+                "https://index.docker.io/v1/": {
+                    "username": "mobydock",
+                    "password": "conta1n3rize14"
+                }
+            }
+
+        This object maps the hostname of a registry to an object containing the
+        "username" and "password" for that registry. Multiple registries may
+        be specified as the build may be based on an image requiring
+        authentication to pull from any arbitrary registry. Only the registry
+        domain name (and port if not the default "443") are required. However
+        (for legacy reasons) the "official" Docker, Inc. hosted registry must
+        be specified with both a "https://" prefix and a "/v1/" suffix even
+        though Docker will prefer to use the v2 registry API.
 
 Status Codes:
 
@@ -1855,7 +1887,7 @@ Create a new image from a container's changes
 **Example response**:
 
     HTTP/1.1 201 Created
-    Content-Type: application/vnd.docker.raw-stream
+    Content-Type: application/json
 
     {"Id": "596069db4bf5"}
 
@@ -1871,6 +1903,8 @@ Query Parameters:
 -   **comment** – commit message
 -   **author** – author (e.g., "John Hannibal Smith
     <[hannibal@a-team.com](mailto:hannibal%40a-team.com)>")
+-   **pause** – 1/True/true or 0/False/false, whether to pause the container before committing
+-   **changes** – Dockerfile instructions to apply while committing
 
 Status Codes:
 
@@ -2050,7 +2084,7 @@ Sets up an exec instance in a running container `id`
     Content-Type: application/json
 
     {
-         "Id": "f90e34656806"
+         "Id": "f90e34656806",
          "Warnings":[]
     }
 
@@ -2100,7 +2134,7 @@ Json Parameters:
 
 Status Codes:
 
--   **201** – no error
+-   **200** – no error
 -   **404** – no such exec instance
 
     **Stream details**:
@@ -2110,12 +2144,12 @@ Status Codes:
 
 `POST /exec/(id)/resize`
 
-Resizes the `tty` session used by the `exec` command `id`.
+Resizes the `tty` session used by the `exec` command `id`.  The unit is number of characters.
 This API is valid only if `tty` was specified as part of creating and starting the `exec` command.
 
 **Example request**:
 
-    POST /exec/e90e34656806/resize HTTP/1.1
+    POST /exec/e90e34656806/resize?h=40&w=80 HTTP/1.1
     Content-Type: text/plain
 
 **Example response**:
@@ -2226,7 +2260,7 @@ Return low-level information about the `exec` command `id`.
         "ProcessLabel" : "",
         "AppArmorProfile" : "",
         "RestartCount" : 0,
-        "Mounts" : [],
+        "Mounts" : []
       }
     }
 

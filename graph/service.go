@@ -8,23 +8,8 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/utils"
 )
-
-// lookupRaw looks up an image by name in a TagStore and returns the raw JSON
-// describing the image.
-func (s *TagStore) lookupRaw(name string) ([]byte, error) {
-	image, err := s.LookupImage(name)
-	if err != nil || image == nil {
-		return nil, fmt.Errorf("No such image %s", name)
-	}
-
-	imageInspectRaw, err := s.graph.RawJSON(image.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	return imageInspectRaw, nil
-}
 
 // Lookup looks up an image by name in a TagStore and returns it as an
 // ImageInspect structure.
@@ -34,8 +19,28 @@ func (s *TagStore) Lookup(name string) (*types.ImageInspect, error) {
 		return nil, fmt.Errorf("No such image: %s", name)
 	}
 
+	var repoTags = make([]string, 0)
+	var repoDigests = make([]string, 0)
+
+	s.Lock()
+	for repoName, repository := range s.Repositories {
+		for ref, id := range repository {
+			if id == image.ID {
+				imgRef := utils.ImageReference(repoName, ref)
+				if utils.DigestReference(ref) {
+					repoDigests = append(repoDigests, imgRef)
+				} else {
+					repoTags = append(repoTags, imgRef)
+				}
+			}
+		}
+	}
+	s.Unlock()
+
 	imageInspect := &types.ImageInspect{
 		ID:              image.ID,
+		RepoTags:        repoTags,
+		RepoDigests:     repoDigests,
 		Parent:          image.Parent,
 		Comment:         image.Comment,
 		Created:         image.Created.Format(time.RFC3339Nano),
@@ -47,7 +52,7 @@ func (s *TagStore) Lookup(name string) (*types.ImageInspect, error) {
 		Architecture:    image.Architecture,
 		Os:              image.OS,
 		Size:            image.Size,
-		VirtualSize:     s.graph.GetParentsSize(image) + image.Size,
+		VirtualSize:     s.graph.getParentsSize(image) + image.Size,
 	}
 
 	imageInspect.GraphDriver.Name = s.graph.driver.String()
@@ -60,13 +65,13 @@ func (s *TagStore) Lookup(name string) (*types.ImageInspect, error) {
 	return imageInspect, nil
 }
 
-// ImageTarLayer return the tarLayer of the image
-func (s *TagStore) ImageTarLayer(name string, dest io.Writer) error {
+// imageTarLayer return the tarLayer of the image
+func (s *TagStore) imageTarLayer(name string, dest io.Writer) error {
 	if image, err := s.LookupImage(name); err == nil && image != nil {
 		// On Windows, the base layer cannot be exported
 		if runtime.GOOS != "windows" || image.Parent != "" {
 
-			fs, err := s.graph.TarLayer(image)
+			fs, err := s.graph.tarLayer(image)
 			if err != nil {
 				return err
 			}

@@ -7,10 +7,10 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/notary/client/changelist"
-	"github.com/endophage/gotuf"
-	"github.com/endophage/gotuf/data"
-	"github.com/endophage/gotuf/keys"
-	"github.com/endophage/gotuf/store"
+	tuf "github.com/docker/notary/tuf"
+	"github.com/docker/notary/tuf/data"
+	"github.com/docker/notary/tuf/keys"
+	"github.com/docker/notary/tuf/store"
 )
 
 // Use this to initialize remote HTTPStores from the config settings
@@ -25,24 +25,35 @@ func getRemoteStore(baseURL, gun string, rt http.RoundTripper) (store.RemoteStor
 	)
 }
 
-func applyChangelist(repo *tuf.TufRepo, cl changelist.Changelist) error {
-	changes := cl.List()
-	logrus.Debugf("applying %d changes", len(changes))
-	for _, c := range changes {
+func applyChangelist(repo *tuf.Repo, cl changelist.Changelist) error {
+	it, err := cl.NewIterator()
+	if err != nil {
+		return err
+	}
+	index := 0
+	for it.HasNext() {
+		c, err := it.Next()
+		if err != nil {
+			return err
+		}
 		switch c.Scope() {
 		case changelist.ScopeTargets:
-			err := applyTargetsChange(repo, c)
-			if err != nil {
-				return err
-			}
+			err = applyTargetsChange(repo, c)
+		case changelist.ScopeRoot:
+			err = applyRootChange(repo, c)
 		default:
 			logrus.Debug("scope not supported: ", c.Scope())
 		}
+		index++
+		if err != nil {
+			return err
+		}
 	}
+	logrus.Debugf("applied %d change(s)", index)
 	return nil
 }
 
-func applyTargetsChange(repo *tuf.TufRepo, c changelist.Change) error {
+func applyTargetsChange(repo *tuf.Repo, c changelist.Change) error {
 	var err error
 	switch c.Action() {
 	case changelist.ActionCreate:
@@ -62,6 +73,36 @@ func applyTargetsChange(repo *tuf.TufRepo, c changelist.Change) error {
 	}
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func applyRootChange(repo *tuf.Repo, c changelist.Change) error {
+	var err error
+	switch c.Type() {
+	case changelist.TypeRootRole:
+		err = applyRootRoleChange(repo, c)
+	default:
+		logrus.Debug("type of root change not yet supported: ", c.Type())
+	}
+	return err // might be nil
+}
+
+func applyRootRoleChange(repo *tuf.Repo, c changelist.Change) error {
+	switch c.Action() {
+	case changelist.ActionCreate:
+		// replaces all keys for a role
+		d := &changelist.TufRootData{}
+		err := json.Unmarshal(c.Content(), d)
+		if err != nil {
+			return err
+		}
+		err = repo.ReplaceBaseKeys(d.RoleName, d.Keys...)
+		if err != nil {
+			return err
+		}
+	default:
+		logrus.Debug("action not yet supported for root: ", c.Action())
 	}
 	return nil
 }

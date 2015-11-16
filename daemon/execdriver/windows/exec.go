@@ -3,7 +3,6 @@
 package windows
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/Sirupsen/logrus"
@@ -12,12 +11,13 @@ import (
 )
 
 // Exec implements the exec driver Driver interface.
-func (d *Driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessConfig, pipes *execdriver.Pipes, startCallback execdriver.StartCallback) (int, error) {
+func (d *Driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessConfig, pipes *execdriver.Pipes, hooks execdriver.Hooks) (int, error) {
 
 	var (
 		term     execdriver.Terminal
 		err      error
 		exitCode int32
+		errno    uint32
 	)
 
 	active := d.activeContainers[c.ID]
@@ -33,25 +33,22 @@ func (d *Driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessCo
 	// Configure the environment for the process // Note NOT c.ProcessConfig.Tty
 	createProcessParms.Environment = setupEnvironmentVariables(processConfig.Env)
 
-	// While this should get caught earlier, just in case, validate that we
-	// have something to run.
-	if processConfig.Entrypoint == "" {
-		err = errors.New("No entrypoint specified")
-		logrus.Error(err)
+	createProcessParms.CommandLine, err = createCommandLine(&c.ProcessConfig, c.ArgsEscaped)
+
+	if err != nil {
 		return -1, err
 	}
 
-	// Build the command line of the process
-	createProcessParms.CommandLine = processConfig.Entrypoint
-	for _, arg := range processConfig.Arguments {
-		logrus.Debugln("appending ", arg)
-		createProcessParms.CommandLine += " " + arg
-	}
-	logrus.Debugln("commandLine: ", createProcessParms.CommandLine)
-
 	// Start the command running in the container.
-	pid, stdin, stdout, stderr, err := hcsshim.CreateProcessInComputeSystem(c.ID, pipes.Stdin != nil, true, !processConfig.Tty, createProcessParms)
+	pid, stdin, stdout, stderr, rc, err := hcsshim.CreateProcessInComputeSystem(c.ID, pipes.Stdin != nil, true, !processConfig.Tty, createProcessParms)
 	if err != nil {
+		// TODO Windows: TP4 Workaround. In Hyper-V containers, there is a limitation
+		// of one exec per container. This should be fixed post TP4. CreateProcessInComputeSystem
+		// will return a specific error which we handle here to give a good error message
+		// back to the user instead of an inactionable "An invalid argument was supplied"
+		if rc == hcsshim.Win32InvalidArgument {
+			return -1, fmt.Errorf("The limit of docker execs per Hyper-V container has been exceeded")
+		}
 		logrus.Errorf("CreateProcessInComputeSystem() failed %s", err)
 		return -1, err
 	}
@@ -69,16 +66,23 @@ func (d *Driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessCo
 	processConfig.Terminal = term
 
 	// Invoke the start callback
-	if startCallback != nil {
-		startCallback(&c.ProcessConfig, int(pid))
+	if hooks.Start != nil {
+		// A closed channel for OOM is returned here as it will be
+		// non-blocking and return the correct result when read.
+		chOOM := make(chan struct{})
+		close(chOOM)
+		hooks.Start(&c.ProcessConfig, int(pid), chOOM)
 	}
 
-	if exitCode, err = hcsshim.WaitForProcessInComputeSystem(c.ID, pid); err != nil {
-		logrus.Errorf("Failed to WaitForProcessInComputeSystem %s", err)
+	if exitCode, errno, err = hcsshim.WaitForProcessInComputeSystem(c.ID, pid, hcsshim.TimeoutInfinite); err != nil {
+		if errno == hcsshim.Win32PipeHasBeenEnded {
+			logrus.Debugf("Exiting Run() after WaitForProcessInComputeSystem failed with recognised error 0x%X", errno)
+			return hcsshim.WaitErrExecFailed, nil
+		}
+		logrus.Warnf("WaitForProcessInComputeSystem failed (container may have been killed): 0x%X %s", errno, err)
 		return -1, err
 	}
 
-	// TODO Windows - Do something with this exit code
-	logrus.Debugln("Exiting Run() with ExitCode 0", c.ID)
+	logrus.Debugln("Exiting Run()", c.ID)
 	return int(exitCode), nil
 }

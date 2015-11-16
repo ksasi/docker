@@ -9,22 +9,24 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/docker/docker/pkg/integration/checker"
 	"github.com/go-check/check"
 )
 
 func (s *DockerSuite) TestExecResizeApiHeightWidthNoInt(c *check.C) {
+	testRequires(c, DaemonIsLinux)
 	out, _ := dockerCmd(c, "run", "-d", "busybox", "top")
 	cleanedContainerID := strings.TrimSpace(out)
 
 	endpoint := "/exec/" + cleanedContainerID + "/resize?h=foo&w=bar"
 	status, _, err := sockRequest("POST", endpoint, nil)
-	c.Assert(status, check.Equals, http.StatusInternalServerError)
-	c.Assert(err, check.IsNil)
+	c.Assert(err, checker.IsNil)
+	c.Assert(status, checker.Equals, http.StatusInternalServerError)
 }
 
 // Part of #14845
 func (s *DockerSuite) TestExecResizeImmediatelyAfterExecStart(c *check.C) {
-	testRequires(c, NativeExecDriver)
+	testRequires(c, DaemonIsLinux)
 
 	name := "exec_resize_test"
 	dockerCmd(c, "run", "-d", "-i", "-t", "--name", name, "--restart", "always", "busybox", "/bin/sh")

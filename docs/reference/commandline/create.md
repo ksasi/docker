@@ -5,7 +5,6 @@ description = "The create command description and usage"
 keywords = ["docker, create, container"]
 [menu.main]
 parent = "smn_cli"
-weight=1
 +++
 <![end-metadata]-->
 
@@ -20,7 +19,8 @@ Creates a new container.
       -a, --attach=[]               Attach to STDIN, STDOUT or STDERR
       --add-host=[]                 Add a custom host-to-IP mapping (host:ip)
       --blkio-weight=0              Block IO weight (relative weight)
-      -c, --cpu-shares=0            CPU shares (relative weight)
+      --blkio-weight-device=""      Block IO weight (relative device weight, format: `DEVICE_NAME:WEIGHT`)
+      --cpu-shares=0                CPU shares (relative weight)
       --cap-add=[]                  Add Linux capabilities
       --cap-drop=[]                 Drop Linux capabilities
       --cgroup-parent=""            Optional parent cgroup for the container
@@ -30,38 +30,42 @@ Creates a new container.
       --cpuset-cpus=""              CPUs in which to allow execution (0-3, 0,1)
       --cpuset-mems=""              Memory nodes (MEMs) in which to allow execution (0-3, 0,1)
       --device=[]                   Add a host device to the container
+      --disable-content-trust=true  Skip image verification
       --dns=[]                      Set custom DNS servers
+      --dns-opt=[]                  Set custom DNS options
       --dns-search=[]               Set custom DNS search domains
       -e, --env=[]                  Set environment variables
       --entrypoint=""               Overwrite the default ENTRYPOINT of the image
       --env-file=[]                 Read in a file of environment variables
       --expose=[]                   Expose a port or a range of ports
+      --group-add=[]                Add additional groups to join
       -h, --hostname=""             Container host name
       --help=false                  Print usage
       -i, --interactive=false       Keep STDIN open even if not attached
       --ipc=""                      IPC namespace to use
+      --kernel-memory=""            Kernel memory limit
       -l, --label=[]                Set metadata on the container (e.g., --label=com.example.key=value)
       --label-file=[]               Read in a line delimited file of labels
       --link=[]                     Add link to another container
       --log-driver=""               Logging driver for container
       --log-opt=[]                  Log driver specific options
-      --lxc-conf=[]                 Add custom lxc options
       -m, --memory=""               Memory limit
       --mac-address=""              Container MAC address (e.g. 92:d0:c6:0a:29:33)
+      --memory-reservation=""       Memory soft limit
       --memory-swap=""              Total memory (memory + swap), '-1' to disable swap
       --memory-swappiness=""        Tune a container's memory swappiness behavior. Accepts an integer between 0 and 100.
       --name=""                     Assign a name to the container
-      --net="bridge"                Set the Network mode for the container
+      --net="default"               Set the Network mode for the container
       --oom-kill-disable=false      Whether to disable OOM Killer for the container or not
       -P, --publish-all=false       Publish all exposed ports to random ports
       -p, --publish=[]              Publish a container's port(s) to the host
       --pid=""                      PID namespace to use
       --privileged=false            Give extended privileges to this container
       --read-only=false             Mount the container's root filesystem as read only
-      --restart="no"                Restart policy (no, on-failure[:max-retry], always)
+      --restart="no"                Restart policy (no, on-failure[:max-retry], always, unless-stopped)
       --security-opt=[]             Security options
+      --stop-signal="SIGTERM"       Signal to stop a container
       -t, --tty=false               Allocate a pseudo-TTY
-      --disable-content-trust=true  Skip image verification
       -u, --user=""                 Username or UID
       --ulimit=[]                   Ulimit options
       --uts=""                      UTS namespace to use
@@ -72,15 +76,14 @@ Creates a new container.
 The `docker create` command creates a writeable container layer over the
 specified image and prepares it for running the specified command.  The
 container ID is then printed to `STDOUT`.  This is similar to `docker run -d`
-except the container is never started.  You can then use the 
+except the container is never started.  You can then use the
 `docker start <container_id>` command to start the container at any point.
 
 This is useful when you want to set up a container configuration ahead of time
 so that it is ready to start when you need it. The initial status of the
 new container is `created`.
 
-Please see the [run command](/reference/commandline/run) section and the [Docker run reference](
-/reference/run/) for more details.
+Please see the [run command](run.md) section and the [Docker run reference](../run.md) for more details.
 
 ## Examples
 
@@ -116,5 +119,3 @@ then be used from the subsequent container:
     -rw-r--r--  1 1000 staff  920 Nov 28 11:51 .profile
     drwx--S---  2 1000 staff  460 Dec  5 00:51 .ssh
     drwxr-xr-x 32 1000 staff 1140 Dec  5 04:01 docker
-
-

@@ -1,4 +1,4 @@
-// Package truncindex package provides a general 'index tree', used by Docker
+// Package truncindex provides a general 'index tree', used by Docker
 // in order to be able to reference containers by only a few unambiguous
 // characters of their id.
 package truncindex
@@ -22,6 +22,9 @@ var (
 
 	// ErrIllegalChar is returned when a space is in the ID
 	ErrIllegalChar = errors.New("illegal character: ' '")
+
+	// ErrNotExist is returned when ID or its prefix not found in index.
+	ErrNotExist = errors.New("ID does not exist")
 )
 
 // TruncIndex allows the retrieval of string identifiers by any of their unique prefixes.
@@ -116,7 +119,7 @@ func (idx *TruncIndex) Get(s string) (string, error) {
 	if id != "" {
 		return id, nil
 	}
-	return "", fmt.Errorf("no such id: %s", s)
+	return "", ErrNotExist
 }
 
 // Iterate iterates over all stored IDs, and passes each of them to the given handler.

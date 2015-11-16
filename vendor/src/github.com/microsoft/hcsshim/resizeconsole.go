@@ -8,6 +8,8 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
+// ResizeConsoleInComputeSystem updates the height and width of the console
+// session for the process with the given id in the container with the given id.
 func ResizeConsoleInComputeSystem(id string, processid uint32, h, w int) error {
 
 	title := "HCSShim::ResizeConsoleInComputeSystem"
@@ -40,7 +42,7 @@ func ResizeConsoleInComputeSystem(id string, processid uint32, h, w int) error {
 		return err
 	}
 
-	logrus.Debugf(title+" - succeeded id=%s processid=%d (%d,%d)", id, processid, h, w)
+	logrus.Debugf(title+" succeeded id=%s processid=%d (%d,%d)", id, processid, h, w)
 	return nil
 
 }

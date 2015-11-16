@@ -8,9 +8,13 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
+// GetLayerMountPath will look for a mounted layer with the given id and return
+// the path at which that layer can be accessed.  This path may be a volume path
+// if the layer is a mounted read-write layer, otherwise it is expected to be the
+// folder path at which the layer is stored.
 func GetLayerMountPath(info DriverInfo, id string) (string, error) {
 	title := "hcsshim::GetLayerMountPath "
-	logrus.Debugf(title+"Flavour %s ID %s", info.Flavour, id)
+	logrus.Debugf(title+"Flavour %d ID %s", info.Flavour, id)
 
 	// Load the DLL and get a handle to the procedure we need
 	dll, proc, err := loadAndFind(procGetLayerMountPath)
@@ -82,6 +86,6 @@ func GetLayerMountPath(info DriverInfo, id string) (string, error) {
 	}
 
 	path := syscall.UTF16ToString(mountPathp[0:])
-	logrus.Debugf(title+" - succeeded id=%s flavour=%d path=%s", id, info.Flavour, path)
+	logrus.Debugf(title+"succeeded flavour=%d id=%s path=%s", info.Flavour, id, path)
 	return path, nil
 }

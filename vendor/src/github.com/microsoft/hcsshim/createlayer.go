@@ -8,9 +8,11 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
+// CreateLayer creates a new, empty, read-only layer on the filesystem based on
+// the parent layer provided.
 func CreateLayer(info DriverInfo, id, parent string) error {
 	title := "hcsshim::CreateLayer "
-	logrus.Debugf(title+"Flavour %s ID %s parent %s", info.Flavour, id, parent)
+	logrus.Debugf(title+"Flavour %d ID %s parent %s", info.Flavour, id, parent)
 
 	// Load the DLL and get a handle to the procedure we need
 	dll, proc, err := loadAndFind(procCreateLayer)

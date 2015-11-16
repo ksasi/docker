@@ -5,7 +5,6 @@ description = "The commit command description and usage"
 keywords = ["commit, file, changes"]
 [menu.main]
 parent = "smn_cli"
-weight=1
 +++
 <![end-metadata]-->
 
@@ -17,6 +16,7 @@ weight=1
 
       -a, --author=""     Author (e.g., "John Hannibal Smith <hannibal@a-team.com>")
       -c, --change=[]     Apply specified Dockerfile instructions while committing the image
+      --help=false        Print usage
       -m, --message=""    Commit message
       -p, --pause=true    Pause container during commit
 
@@ -62,3 +62,21 @@ created.  Supported `Dockerfile` instructions:
     $ docker inspect -f "{{ .Config.Env }}" f5283438590d
     [HOME=/ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin DEBUG=true]
 
+## Commit a container with new `CMD` and `EXPOSE` instructions 
+
+    $ docker ps
+    ID                  IMAGE               COMMAND             CREATED             STATUS              PORTS
+    c3f279d17e0a        ubuntu:12.04        /bin/bash           7 days ago          Up 25 hours
+    197387f1b436        ubuntu:12.04        /bin/bash           7 days ago          Up 25 hours
+
+    $ docker commit --change='CMD ["apachectl", "-DFOREGROUND"]' -c "EXPOSE 80" c3f279d17e0a  SvenDowideit/testimage:version4
+    f5283438590d
+    
+    $ docker run -d SvenDowideit/testimage:version4
+    89373736e2e7f00bc149bd783073ac43d0507da250e999f3f1036e0db60817c0
+
+    $ docker ps
+    ID                  IMAGE               COMMAND                 CREATED             STATUS              PORTS
+    89373736e2e7        testimage:version4  "apachectl -DFOREGROU"  3 seconds ago       Up 2 seconds        80/tcp
+    c3f279d17e0a        ubuntu:12.04        /bin/bash               7 days ago          Up 25 hours
+    197387f1b436        ubuntu:12.04        /bin/bash               7 days ago          Up 25 hours

@@ -9,7 +9,8 @@ docker-run - Run a command in a new container
 [**-a**|**--attach**[=*[]*]]
 [**--add-host**[=*[]*]]
 [**--blkio-weight**[=*[BLKIO-WEIGHT]*]]
-[**-c**|**--cpu-shares**[=*0*]]
+[**--blkio-weight-device**[=*[]*]]
+[**--cpu-shares**[=*0*]]
 [**--cap-add**[=*[]*]]
 [**--cap-drop**[=*[]*]]
 [**--cgroup-parent**[=*CGROUP-PATH*]]
@@ -21,6 +22,7 @@ docker-run - Run a command in a new container
 [**-d**|**--detach**[=*false*]]
 [**--device**[=*[]*]]
 [**--dns**[=*[]*]]
+[**--dns-opt**[=*[]*]]
 [**--dns-search**[=*[]*]]
 [**-e**|**--env**[=*[]*]]
 [**--entrypoint**[=*ENTRYPOINT*]]
@@ -31,14 +33,15 @@ docker-run - Run a command in a new container
 [**--help**]
 [**-i**|**--interactive**[=*false*]]
 [**--ipc**[=*IPC*]]
+[**--kernel-memory**[=*KERNEL-MEMORY*]]
 [**-l**|**--label**[=*[]*]]
 [**--label-file**[=*[]*]]
 [**--link**[=*[]*]]
 [**--log-driver**[=*[]*]]
 [**--log-opt**[=*[]*]]
-[**--lxc-conf**[=*[]*]]
 [**-m**|**--memory**[=*MEMORY*]]
 [**--mac-address**[=*MAC-ADDRESS*]]
+[**--memory-reservation**[=*MEMORY-RESERVATION*]]
 [**--memory-swap**[=*MEMORY-SWAP*]]
 [**--memory-swappiness**[=*MEMORY-SWAPPINESS*]]
 [**--name**[=*NAME*]]
@@ -52,6 +55,7 @@ docker-run - Run a command in a new container
 [**--restart**[=*RESTART*]]
 [**--rm**[=*false*]]
 [**--security-opt**[=*[]*]]
+[**--stop-signal**[=*SIGNAL*]]
 [**--sig-proxy**[=*true*]]
 [**-t**|**--tty**[=*false*]]
 [**-u**|**--user**[=*USER*]]
@@ -93,17 +97,20 @@ each of stdin, stdout, and stderr.
    Add a line to /etc/hosts. The format is hostname:ip.  The **--add-host**
 option can be set multiple times.
 
-**--blkio-weight**=0
+**--blkio-weight**=*0*
    Block IO weight (relative weight) accepts a weight value between 10 and 1000.
 
-**-c**, **--cpu-shares**=0
+**--blkio-weight-device**=[]
+   Block IO weight (relative device weight, format: `DEVICE_NAME:WEIGHT`).
+
+**--cpu-shares**=*0*
    CPU shares (relative weight)
 
    By default, all containers get the same proportion of CPU cycles. This proportion
 can be modified by changing the container's CPU share weighting relative
 to the weighting of all other running containers.
 
-To modify the proportion from the default of 1024, use the **-c** or **--cpu-shares**
+To modify the proportion from the default of 1024, use the **--cpu-shares**
 flag to set the weighting to 2 or higher.
 
 The proportion will only apply when CPU-intensive processes are running.
@@ -144,7 +151,7 @@ division of CPU shares:
 **--cidfile**=""
    Write the container ID to the file
 
-**--cpu-period**=0
+**--cpu-period**=*0*
    Limit the CPU CFS (Completely Fair Scheduler) period
 
    Limit the container's CPU usage. This flag tell the kernel to restrict the container's CPU usage to the period you specify.
@@ -159,7 +166,7 @@ division of CPU shares:
 then processes in your Docker container will only use memory from the first
 two memory nodes.
 
-**--cpu-quota**=0
+**--cpu-quota**=*0*
    Limit the CPU CFS (Completely Fair Scheduler) quota
 
    Limit the container's CPU usage. By default, containers run with the full
@@ -182,6 +189,9 @@ stopping the process by pressing the keys CTRL-P CTRL-Q.
 
 **--dns-search**=[]
    Set custom DNS search domains (Use --dns-search=. if you don't wish to set the search domain)
+
+**--dns-opt**=[]
+   Set custom DNS options
 
 **--dns**=[]
    Set custom DNS servers
@@ -216,7 +226,10 @@ ENTRYPOINT.
    Read in a line delimited file of environment variables
 
 **--expose**=[]
-   Expose a port, or a range of ports (e.g. --expose=3300-3310), from the container without publishing it to your host
+   Expose a port, or a range of ports (e.g. --expose=3300-3310) informs Docker
+that the container listens on the specified network ports at runtime. Docker
+uses this information to interconnect containers using links and to set up port
+redirection on the host system.
 
 **--group-add**=[]
    Add additional groups to run as
@@ -242,6 +255,15 @@ ENTRYPOINT.
 **-l**, **--label**=[]
    Set metadata on the container (e.g., --label com.example.key=value)
 
+**--kernel-memory**=""
+   Kernel memory limit (format: `<number>[<unit>]`, where unit = b, k, m or g)
+
+   Constrains the kernel memory available to a container. If a limit of 0
+is specified (not using `--kernel-memory`), the container's kernel memory
+is not limited. If you specify a limit, it may be rounded up to a multiple
+of the operating system's page size and the value can be very large,
+millions of trillions.
+
 **--label-file**=[]
    Read in a line delimited file of labels
 
@@ -255,18 +277,16 @@ container can access the exposed port via a private networking interface. Docker
 will set some environment variables in the client container to help indicate
 which interface and port to use.
 
-**--lxc-conf**=[]
-   (lxc exec-driver only) Add custom lxc options --lxc-conf="lxc.cgroup.cpuset.cpus = 0,1"
-
-**--log-driver**="|*json-file*|*syslog*|*journald*|*gelf*|*fluentd*|*none*"
+**--log-driver**="*json-file*|*syslog*|*journald*|*gelf*|*fluentd*|*awslogs*|*splunk*|*none*"
   Logging driver for container. Default is defined by daemon `--log-driver` flag.
-  **Warning**: `docker logs` command works only for `json-file` logging driver.
+  **Warning**: the `docker logs` command works only for the `json-file` and
+  `journald` logging drivers.
 
 **--log-opt**=[]
   Logging driver specific options.
 
 **-m**, **--memory**=""
-   Memory limit (format: <number><optional unit>, where unit = b, k, m or g)
+   Memory limit (format: <number>[<unit>], where unit = b, k, m or g)
 
    Allows you to constrain the memory available to a container. If the host
 supports swap memory, then the **-m** memory setting can be larger than physical
@@ -274,10 +294,19 @@ RAM. If a limit of 0 is specified (not using **-m**), the container's memory is
 not limited. The actual limit may be rounded up to a multiple of the operating
 system's page size (the value would be very large, that's millions of trillions).
 
+**--memory-reservation**=""
+   Memory soft limit (format: <number>[<unit>], where unit = b, k, m or g)
+
+   After setting memory reservation, when the system detects memory contention
+or low memory, containers are forced to restrict their consumption to their
+reservation. So you should always set the value below **--memory**, otherwise the
+hard limit will take precedence. By default, memory reservation will be the same
+as memory limit.
+
 **--memory-swap**=""
    Total memory limit (memory + swap)
 
-   Set `-1` to disable swap (format: <number><optional unit>, where unit = b, k, m or g).
+   Set `-1` to disable swap (format: <number>[<unit>], where unit = b, k, m or g).
 This value should always larger than **-m**, so you should always use this with **-m**.
 
 **--mac-address**=""
@@ -301,7 +330,7 @@ string name. The name is useful when defining links (see **--link**) (or any
 other place you need to identify a container). This works for both background
 and foreground Docker containers.
 
-**--net**="bridge"
+**--net**="*bridge*"
    Set the Network mode for the container
                                'bridge': creates a new network stack for the container on the docker bridge
                                'none': no networking for this container
@@ -324,17 +353,21 @@ ports and the exposed ports, use `docker port`.
 
 **-p**, **--publish**=[]
    Publish a container's port, or range of ports, to the host.
-                               format: ip:hostPort:containerPort | ip::containerPort | hostPort:containerPort | containerPort
-                               Both hostPort and containerPort can be specified as a range of ports. 
-                               When specifying ranges for both, the number of container ports in the range must match the number of host ports in the range. (e.g., `-p 1234-1236:1234-1236/tcp`)
-                               (use 'docker port' to see the actual mapping)
 
-**--pid**=host
+   Format: `ip:hostPort:containerPort | ip::containerPort | hostPort:containerPort | containerPort`
+Both hostPort and containerPort can be specified as a range of ports.
+When specifying ranges for both, the number of container ports in the range must match the number of host ports in the range.
+(e.g., `docker run -p 1234-1236:1222-1224 --name thisWorks -t busybox`
+but not `docker run -p 1230-1236:1230-1240 --name RangeContainerPortsBiggerThanRangeHostPorts -t busybox`)
+With ip: `docker run -p 127.0.0.1:$HOSTPORT:$CONTAINERPORT --name CONTAINER -t someimage`
+Use `docker port` to see the actual mapping: `docker port CONTAINER $CONTAINERPORT`
+
+**--pid**=*host*
    Set the PID mode for the container
      **host**: use the host's PID namespace inside the container.
      Note: the host mode gives the container full access to local PID and is therefore considered insecure.
 
-**--uts**=host
+**--uts**=*host*
    Set the UTS mode for the container
      **host**: use the host's UTS namespace inside the container.
      Note: the host mode gives the container access to changing the host's hostname and is therefore considered insecure.
@@ -359,9 +392,9 @@ outside of a container on the host.
 to write files anywhere.  By specifying the `--read-only` flag the container will have
 its root filesystem mounted as read only prohibiting any writes.
 
-**--restart**="no"
-   Restart policy to apply when a container exits (no, on-failure[:max-retry], always)
-      
+**--restart**="*no*"
+   Restart policy to apply when a container exits (no, on-failure[:max-retry], always, unless-stopped).
+
 **--rm**=*true*|*false*
    Automatically remove the container when it exits (incompatible with -d). The default is *false*.
 
@@ -374,6 +407,9 @@ its root filesystem mounted as read only prohibiting any writes.
     "label:level:LEVEL" : Set the label level for the container
     "label:disable"     : Turn off label confinement for the container
 
+**--stop-signal**=*SIGTERM*
+  Signal to stop a container. Default is SIGTERM.
+
 **--sig-proxy**=*true*|*false*
    Proxy received signals to the process (non-TTY mode only). SIGCHLD, SIGSTOP, and SIGKILL are not proxied. The default is *true*.
 
@@ -385,7 +421,7 @@ its root filesystem mounted as read only prohibiting any writes.
 
    When set to true Docker can allocate a pseudo-tty and attach to the standard
 input of any container. This can be used, for example, to run a throwaway
-interactive shell. The default is value is false.
+interactive shell. The default is false.
 
 The **-t** option is incompatible with a redirection of the docker client
 standard input.
@@ -398,11 +434,19 @@ standard input.
 
    Without this argument the command will be run as root in the container.
 
-""--ulimit""=[]
+**--ulimit**=[]
     Ulimit options
 
-**-v**, **--volume**=[]
-   Bind mount a volume (e.g., from the host: -v /host:/container, from Docker: -v /container)
+**-v**, **--volume**=[] Create a bind mount
+   (format: `[host-dir:]container-dir[:<suffix options>]`, where suffix options
+are comma delimited and selected from [rw|ro] and [z|Z].)
+
+   (e.g., using -v /host-dir:/container-dir, bind mounts /host-dir in the
+host to /container-dir in the Docker container)
+
+   If 'host-dir' is missing, then docker automatically creates the new volume
+on the host. **This auto-creation of the host path has been deprecated in
+Release: v1.9.**
 
    The **-v** option can be used one or
 more times to add one or more mounts to a container. These mounts can then be
@@ -425,20 +469,31 @@ content label. Shared volume labels allow all containers to read/write content.
 The `Z` option tells Docker to label the content with a private unshared label.
 Only the current container can use a private volume.
 
-Note: Multiple Volume options can be added separated by a ","
+The `container-dir` must always be an absolute path such as `/src/docs`.
+The `host-dir` can either be an absolute path or a `name` value. If you
+supply an absolute path for the `host-dir`, Docker bind-mounts to the path
+you specify. If you supply a `name`, Docker creates a named volume by that `name`.
+
+A `name` value must start with start with an alphanumeric character,
+followed by `a-z0-9`, `_` (underscore), `.` (period) or `-` (hyphen).
+An absolute path starts with a `/` (forward slash).
+
+For example, you can specify either `/foo` or `foo` for a `host-dir` value.
+If you supply the `/foo` value, Docker creates a bind-mount. If you supply
+the `foo` specification, Docker creates a named volume.
 
 **--volumes-from**=[]
    Mount volumes from the specified container(s)
 
    Mounts already mounted volumes from a source container onto another
-   container. You must supply the source's container-id. To share 
+   container. You must supply the source's container-id. To share
    a volume, use the **--volumes-from** option when running
-   the target container. You can share volumes even if the source container 
+   the target container. You can share volumes even if the source container
    is not running.
 
-   By default, Docker mounts the volumes in the same mode (read-write or 
-   read-only) as it is mounted in the source container. Optionally, you 
-   can change this by suffixing the container-id with either the `:ro` or 
+   By default, Docker mounts the volumes in the same mode (read-write or
+   read-only) as it is mounted in the source container. Optionally, you
+   can change this by suffixing the container-id with either the `:ro` or
    `:rw ` keyword.
 
    If the location of the volume from the source container overlaps with
@@ -452,6 +507,38 @@ Note: Multiple Volume options can be added separated by a ","
 running binaries within a container is the root directory (/). The developer can
 set a different default with the Dockerfile WORKDIR instruction. The operator
 can override the working directory by using the **-w** option.
+
+# Exit Status
+
+The exit code from `docker run` gives information about why the container
+failed to run or why it exited.  When `docker run` exits with a non-zero code,
+the exit codes follow the `chroot` standard, see below:
+
+**_125_** if the error is with Docker daemon **_itself_** 
+
+    $ docker run --foo busybox; echo $?
+    # flag provided but not defined: --foo
+      See 'docker run --help'.
+      125
+
+**_126_** if the **_contained command_** cannot be invoked
+
+    $ docker run busybox /etc; echo $?
+    # exec: "/etc": permission denied
+      docker: Error response from daemon: Contained command could not be invoked
+      126
+
+**_127_** if the **_contained command_** cannot be found
+
+    $ docker run busybox foo; echo $?
+    # exec: "foo": executable file not found in $PATH
+      docker: Error response from daemon: Contained command not found or does not exist
+      127
+
+**_Exit code_** of **_contained command_** otherwise 
+    
+    $ docker run busybox /bin/sh -c 'exit 3' 
+    # 3
 
 # EXAMPLES
 
@@ -503,7 +590,7 @@ Now run a regular container, and it correctly does NOT see the shared memory seg
 ```
  $ docker run -it shm ipcs -m
 
- ------ Shared Memory Segments --------	
+ ------ Shared Memory Segments --------
  key        shmid      owner      perms      bytes      nattch     status      
 ```
 
@@ -581,6 +668,15 @@ Running the **env** command in the linker container shows environment variables
 
 When linking two containers Docker will use the exposed ports of the container
 to create a secure tunnel for the parent to access.
+
+If a container is connected to the default bridge network and `linked`
+with other containers, then the container's `/etc/hosts` file is updated
+with the linked container's name.
+
+> **Note** Since Docker may live update the container’s `/etc/hosts` file, there
+may be situations when processes inside the container can end up reading an
+empty or incomplete `/etc/hosts` file. In most cases, retrying the read again
+should fix the problem.
 
 
 ## Mapping Ports for External Usage
@@ -663,8 +759,16 @@ Note:
 
 You would have to write policy defining a `svirt_apache_t` type.
 
+## Setting device weight
+
+If you want to set `/dev/sda` device weight to `200`, you can specify the device
+weight by `--blkio-weight-device` flag. Use the following command:
+
+   # docker run -it --blkio-weight-device "/dev/sda:200" ubuntu
+
 # HISTORY
 April 2014, Originally compiled by William Henry (whenry at redhat dot com)
 based on docker.com source material and internal work.
 June 2014, updated by Sven Dowideit <SvenDowideit@home.org.au>
 July 2014, updated by Sven Dowideit <SvenDowideit@home.org.au>
+November 2015, updated by Sally O'Malley <somalley@redhat.com>

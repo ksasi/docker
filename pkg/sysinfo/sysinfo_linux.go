@@ -49,6 +49,10 @@ func checkCgroupMem(quiet bool) cgroupMemInfo {
 	if !quiet && !swapLimit {
 		logrus.Warn("Your kernel does not support swap memory limit.")
 	}
+	memoryReservation := cgroupEnabled(mountPoint, "memory.soft_limit_in_bytes")
+	if !quiet && !memoryReservation {
+		logrus.Warn("Your kernel does not support memory reservation.")
+	}
 	oomKillDisable := cgroupEnabled(mountPoint, "memory.oom_control")
 	if !quiet && !oomKillDisable {
 		logrus.Warnf("Your kernel does not support oom control.")
@@ -57,12 +61,18 @@ func checkCgroupMem(quiet bool) cgroupMemInfo {
 	if !quiet && !memorySwappiness {
 		logrus.Warnf("Your kernel does not support memory swappiness.")
 	}
+	kernelMemory := cgroupEnabled(mountPoint, "memory.kmem.limit_in_bytes")
+	if !quiet && !kernelMemory {
+		logrus.Warnf("Your kernel does not support kernel memory limit.")
+	}
 
 	return cgroupMemInfo{
-		MemoryLimit:      true,
-		SwapLimit:        swapLimit,
-		OomKillDisable:   oomKillDisable,
-		MemorySwappiness: memorySwappiness,
+		MemoryLimit:       true,
+		SwapLimit:         swapLimit,
+		MemoryReservation: memoryReservation,
+		OomKillDisable:    oomKillDisable,
+		MemorySwappiness:  memorySwappiness,
+		KernelMemory:      kernelMemory,
 	}
 }
 
@@ -107,16 +117,24 @@ func checkCgroupBlkioInfo(quiet bool) cgroupBlkioInfo {
 		return cgroupBlkioInfo{}
 	}
 
-	w := cgroupEnabled(mountPoint, "blkio.weight")
-	if !quiet && !w {
+	weight := cgroupEnabled(mountPoint, "blkio.weight")
+	if !quiet && !weight {
 		logrus.Warn("Your kernel does not support cgroup blkio weight")
 	}
-	return cgroupBlkioInfo{BlkioWeight: w}
+
+	weightDevice := cgroupEnabled(mountPoint, "blkio.weight_device")
+	if !quiet && !weightDevice {
+		logrus.Warn("Your kernel does not support cgroup blkio weight_device")
+	}
+	return cgroupBlkioInfo{
+		BlkioWeight:       weight,
+		BlkioWeightDevice: weightDevice,
+	}
 }
 
 // checkCgroupCpusetInfo reads the cpuset information from the cpuset cgroup mount point.
 func checkCgroupCpusetInfo(quiet bool) cgroupCpusetInfo {
-	_, err := cgroups.FindCgroupMountpoint("cpuset")
+	mountPoint, err := cgroups.FindCgroupMountpoint("cpuset")
 	if err != nil {
 		if !quiet {
 			logrus.Warn(err)
@@ -124,7 +142,21 @@ func checkCgroupCpusetInfo(quiet bool) cgroupCpusetInfo {
 		return cgroupCpusetInfo{}
 	}
 
-	return cgroupCpusetInfo{Cpuset: true}
+	cpus, err := ioutil.ReadFile(path.Join(mountPoint, "cpuset.cpus"))
+	if err != nil {
+		return cgroupCpusetInfo{}
+	}
+
+	mems, err := ioutil.ReadFile(path.Join(mountPoint, "cpuset.mems"))
+	if err != nil {
+		return cgroupCpusetInfo{}
+	}
+
+	return cgroupCpusetInfo{
+		Cpuset: true,
+		Cpus:   strings.TrimSpace(string(cpus)),
+		Mems:   strings.TrimSpace(string(mems)),
+	}
 }
 
 func cgroupEnabled(mountPoint, name string) bool {

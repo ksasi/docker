@@ -15,8 +15,7 @@ weight = 7
 
  - The Remote API has replaced `rcli`.
  - The daemon listens on `unix:///var/run/docker.sock` but you can
-   [Bind Docker to another host/port or a Unix socket](
-   /articles/basics/#bind-docker-to-another-hostport-or-a-unix-socket).
+   [Bind Docker to another host/port or a Unix socket](../../userguide/basics.md#bind-docker-to-another-host-port-or-a-unix-socket).
  - The API tends to be REST, but for some complex commands, like `attach`
    or `pull`, the HTTP connection is hijacked to transport `STDOUT`,
    `STDIN` and `STDERR`.
@@ -127,7 +126,10 @@ Create a container
              "Tty":false,
              "OpenStdin":false,
              "StdinOnce":false,
-             "Env":null,
+             "Env": [
+                     "FOO=bar",
+                     "BAZ=quux"
+             ],
              "Cmd":[
                      "date"
              ],
@@ -591,8 +593,7 @@ Status Codes:
     **Stream details**:
 
     When using the TTY setting is enabled in
-    [`POST /containers/create`
-    ](/reference/api/docker_remote_api_v1.9/#create-a-container "POST /containers/create"),
+    [`POST /containers/create`](#create-a-container),
     the stream is the raw data from the process PTY and client's stdin.
     When the TTY is disabled, then the stream is multiplexed to separate
     stdout and stderr.
@@ -1107,7 +1108,7 @@ Build an image from Dockerfile via stdin
     The archive must include a file called `Dockerfile`
     at its root. It may include any number of other files,
     which will be accessible in the build context (See the [*ADD build
-    command*](/reference/builder/#dockerbuilder)).
+    command*](../../reference/builder.md#dockerbuilder)).
 
 Query Parameters:
 
@@ -1286,7 +1287,7 @@ Create a new image from a container's changes
 **Example response**:
 
         HTTP/1.1 201 Created
-        Content-Type: application/vnd.docker.raw-stream
+        Content-Type: application/json
 
         {"Id": "596069db4bf5"}
 

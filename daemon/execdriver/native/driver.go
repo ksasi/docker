@@ -131,9 +131,10 @@ type execOutput struct {
 
 // Run implements the exec driver Driver interface,
 // it calls libcontainer APIs to run a container.
-func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallback execdriver.StartCallback) (execdriver.ExitStatus, error) {
+func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, hooks execdriver.Hooks) (execdriver.ExitStatus, error) {
+	destroyed := false
 	// take the Command and populate the libcontainer.Config from it
-	container, err := d.createContainer(c)
+	container, err := d.createContainer(c, hooks)
 	if err != nil {
 		return execdriver.ExitStatus{ExitCode: -1}, err
 	}
@@ -157,7 +158,9 @@ func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 	d.activeContainers[c.ID] = cont
 	d.Unlock()
 	defer func() {
-		cont.Destroy()
+		if !destroyed {
+			cont.Destroy()
+		}
 		d.cleanContainer(c.ID)
 	}()
 
@@ -165,17 +168,17 @@ func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 		return execdriver.ExitStatus{ExitCode: -1}, err
 	}
 
-	if startCallback != nil {
+	oom := notifyOnOOM(cont)
+	if hooks.Start != nil {
 		pid, err := p.Pid()
 		if err != nil {
 			p.Signal(os.Kill)
 			p.Wait()
 			return execdriver.ExitStatus{ExitCode: -1}, err
 		}
-		startCallback(&c.ProcessConfig, pid)
+		hooks.Start(&c.ProcessConfig, pid, oom)
 	}
 
-	oom := notifyOnOOM(cont)
 	waitF := p.Wait
 	if nss := cont.Config().Namespaces; !nss.Contains(configs.NEWPID) {
 		// we need such hack for tracking processes with inherited fds,
@@ -191,12 +194,13 @@ func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 		ps = execErr.ProcessState
 	}
 	cont.Destroy()
+	destroyed = true
 	_, oomKill := <-oom
 	return execdriver.ExitStatus{ExitCode: utils.ExitStatus(ps.Sys().(syscall.WaitStatus)), OOMKilled: oomKill}, nil
 }
 
 // notifyOnOOM returns a channel that signals if the container received an OOM notification
-// for any process.  If it is unable to subscribe to OOM notifications then a closed
+// for any process. If it is unable to subscribe to OOM notifications then a closed
 // channel is returned as it will be non-blocking and return the correct result when read.
 func notifyOnOOM(container libcontainer.Container) <-chan struct{} {
 	oom, err := container.NotifyOOM()
@@ -442,22 +446,35 @@ func (t *TtyConsole) Close() error {
 }
 
 func setupPipes(container *configs.Config, processConfig *execdriver.ProcessConfig, p *libcontainer.Process, pipes *execdriver.Pipes) error {
-	var term execdriver.Terminal
-	var err error
+
+	rootuid, err := container.HostUID()
+	if err != nil {
+		return err
+	}
 
 	if processConfig.Tty {
-		rootuid, err := container.HostUID()
-		if err != nil {
-			return err
-		}
 		cons, err := p.NewConsole(rootuid)
 		if err != nil {
 			return err
 		}
-		term, err = NewTtyConsole(cons, pipes)
-	} else {
+		term, err := NewTtyConsole(cons, pipes)
+		if err != nil {
+			return err
+		}
+		processConfig.Terminal = term
+		return nil
+	}
+	// not a tty--set up stdio pipes
+	term := &execdriver.StdConsole{}
+	processConfig.Terminal = term
+
+	// if we are not in a user namespace, there is no reason to go through
+	// the hassle of setting up os-level pipes with proper (remapped) ownership
+	// so we will do the prior shortcut for non-userns containers
+	if rootuid == 0 {
 		p.Stdout = pipes.Stdout
 		p.Stderr = pipes.Stderr
+
 		r, w, err := os.Pipe()
 		if err != nil {
 			return err
@@ -469,11 +486,62 @@ func setupPipes(container *configs.Config, processConfig *execdriver.ProcessConf
 			}()
 			p.Stdin = r
 		}
-		term = &execdriver.StdConsole{}
+		return nil
 	}
+
+	// if we have user namespaces enabled (rootuid != 0), we will set
+	// up os pipes for stderr, stdout, stdin so we can chown them to
+	// the proper ownership to allow for proper access to the underlying
+	// fds
+	var fds []int
+
+	//setup stdout
+	r, w, err := os.Pipe()
 	if err != nil {
 		return err
 	}
-	processConfig.Terminal = term
+	fds = append(fds, int(r.Fd()), int(w.Fd()))
+	if pipes.Stdout != nil {
+		go io.Copy(pipes.Stdout, r)
+	}
+	term.Closers = append(term.Closers, r)
+	p.Stdout = w
+
+	//setup stderr
+	r, w, err = os.Pipe()
+	if err != nil {
+		return err
+	}
+	fds = append(fds, int(r.Fd()), int(w.Fd()))
+	if pipes.Stderr != nil {
+		go io.Copy(pipes.Stderr, r)
+	}
+	term.Closers = append(term.Closers, r)
+	p.Stderr = w
+
+	//setup stdin
+	r, w, err = os.Pipe()
+	if err != nil {
+		return err
+	}
+	fds = append(fds, int(r.Fd()), int(w.Fd()))
+	if pipes.Stdin != nil {
+		go func() {
+			io.Copy(w, pipes.Stdin)
+			w.Close()
+		}()
+		p.Stdin = r
+	}
+	for _, fd := range fds {
+		if err := syscall.Fchown(fd, rootuid, rootuid); err != nil {
+			return fmt.Errorf("Failed to chown pipes fd: %v", err)
+		}
+	}
 	return nil
+}
+
+// SupportsHooks implements the execdriver Driver interface.
+// The libcontainer/runC-based native execdriver does exploit the hook mechanism
+func (d *Driver) SupportsHooks() bool {
+	return true
 }

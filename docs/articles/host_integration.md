@@ -4,15 +4,14 @@ title = "Automatically start containers"
 description = "How to generate scripts for upstart, systemd, etc."
 keywords = ["systemd, upstart, supervisor, docker, documentation,  host integration"]
 [menu.main]
-parent = "smn_containers"
-weight = 99
+parent = "smn_administrate"
 +++
 <![end-metadata]-->
 
 # Automatically start containers
 
 As of Docker 1.2,
-[restart policies](/reference/run/#restart-policies-restart) are the
+[restart policies](../reference/run.md#restart-policies-restart) are the
 built-in Docker mechanism for restarting containers when they exit. If set,
 restart policies will be used when the Docker daemon starts up, as typically
 happens after a system boot. Restart policies will ensure that linked containers

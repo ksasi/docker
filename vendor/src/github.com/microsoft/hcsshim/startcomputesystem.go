@@ -8,7 +8,8 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
-// StartComputeSystem starts a container
+// StartComputeSystem starts a container that has previously been created via
+// CreateComputeSystem.
 func StartComputeSystem(id string) error {
 
 	title := "HCSShim::StartComputeSystem"
@@ -42,6 +43,6 @@ func StartComputeSystem(id string) error {
 		return err
 	}
 
-	logrus.Debugf("HCSShim::StartComputeSystem - succeeded id=%s", id)
+	logrus.Debugf(title+" succeeded id=%s", id)
 	return nil
 }

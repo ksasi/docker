@@ -8,6 +8,11 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
+// ExportLayer will create a folder at exportFolderPath and fill that folder with
+// the transport format version of the layer identified by layerId. This transport
+// format includes any metadata required for later importing the layer (using
+// ImportLayer), and requires the full list of parent layer paths in order to
+// perform the export.
 func ExportLayer(info DriverInfo, layerId string, exportFolderPath string, parentLayerPaths []string) error {
 	title := "hcsshim::ExportLayer "
 	logrus.Debugf(title+"flavour %d layerId %s folder %s", info.Flavour, layerId, exportFolderPath)
@@ -78,6 +83,6 @@ func ExportLayer(info DriverInfo, layerId string, exportFolderPath string, paren
 		return err
 	}
 
-	logrus.Debugf(title+"- succeeded layerId=%s flavour=%d folder=%s", layerId, info.Flavour, exportFolderPath)
+	logrus.Debugf(title+"succeeded flavour=%d layerId=%s folder=%s", info.Flavour, layerId, exportFolderPath)
 	return nil
 }

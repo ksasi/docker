@@ -1,4 +1,4 @@
-# Docker Experimental Features 
+# Docker Experimental Features
 
 This page contains a list of features in the Docker engine which are
 experimental. Experimental features are **not** ready for production. They are
@@ -65,16 +65,14 @@ After downloading the appropriate binary, you can follow the instructions
 ### Build an experimental binary
 You can also build the experimental binary from the standard development environment by adding
 `DOCKER_EXPERIMENTAL=1` to the environment where you run `make` to build Docker binaries. For example,
-to build a dynamically-linked Docker binary with the experimental features enabled:
+to build a Docker binary with the experimental features enabled:
 
-        $ DOCKER_EXPERIMENTAL=1 make dynbinary
+        $ DOCKER_EXPERIMENTAL=1 make binary
 
 ## Current experimental features
 
-* [Network plugins](plugins_network.md)
-* [Networking and Services UI](networking.md)
-* [Native multi-host networking](network_overlay.md)
-* [Compose, Swarm and networking integration](compose_swarm_networking.md)
+ * [External graphdriver plugins](plugins_graphdriver.md)
+ * [User namespaces](userns.md)
 
 ## How to comment on an experimental feature
 

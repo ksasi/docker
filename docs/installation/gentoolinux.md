@@ -50,7 +50,6 @@ IRC channel on the Freenode network.
 | contrib       |  Yes    |Install additional contributed scripts and components.|
 | device-mapper |  Yes    |Enables dependencies for the "devicemapper" graph driver, including necessary kernel flags.|
 | doc           |         |Add extra documentation (API, Javadoc, etc). It is recommended to enable per package instead of globally.|
-| lxc           |         |Enables dependencies for the "lxc" execution driver.|
 | vim-syntax    |         |Pulls in related vim syntax scripts.|
 | zsh-completion|         |Enable zsh completion support.|
 
@@ -100,7 +99,7 @@ To start on system boot:
    
 If you need to add an HTTP Proxy, set a different directory or partition for the
 Docker runtime files, or make other customizations, read our systemd article to
-learn how to [customize your systemd Docker daemon options](/articles/systemd/).
+learn how to [customize your systemd Docker daemon options](../articles/systemd.md).
 
 ## Uninstallation
 

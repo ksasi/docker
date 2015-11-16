@@ -15,8 +15,7 @@ weight = 3
 
  - The Remote API has replaced `rcli`.
  - The daemon listens on `unix:///var/run/docker.sock` but you can
-   [Bind Docker to another host/port or a Unix socket](
-   /articles/basics/#bind-docker-to-another-hostport-or-a-unix-socket).
+   [Bind Docker to another host/port or a Unix socket](../../userguide/basics.md#bind-docker-to-another-host-port-or-a-unix-socket).
  - The API tends to be REST, but for some complex commands, like `attach`
    or `pull`, the HTTP connection is hijacked to transport `STDOUT`,
    `STDIN` and `STDERR`.
@@ -139,7 +138,10 @@ Create a container
              "Tty": false,
              "OpenStdin": false,
              "StdinOnce": false,
-             "Env": null,
+             "Env": [
+                     "FOO=bar",
+                     "BAZ=quux"
+             ],
              "Cmd": [
                      "date"
              ],
@@ -193,7 +195,7 @@ Create a container
         Content-Type: application/json
 
         {
-             "Id":"e90e34656806"
+             "Id":"e90e34656806",
              "Warnings":[]
         }
 
@@ -217,7 +219,7 @@ Json Parameters:
 -   **Tty** - Boolean value, Attach standard streams to a tty, including stdin if it is not closed.
 -   **OpenStdin** - Boolean value, opens stdin,
 -   **StdinOnce** - Boolean value, close stdin after the 1 attached client disconnects.
--   **Env** - A list of environment variables in the form of `VAR=value`
+-   **Env** - A list of environment variables in the form of `["VAR=value"[,"VAR2=value2"]]`
 -   **Labels** - Adds a map of labels that to a container. To specify a map: `{"key":"value"[,"key2":"value2"]}`
 -   **Cmd** - Command to run specified as a string or an array of strings.
 -   **Entrypoint** - Set the entrypoint for the container a string or an array
@@ -274,12 +276,12 @@ Json Parameters:
           `{ "PathOnHost": "/dev/deviceName", "PathInContainer": "/dev/deviceName", "CgroupPermissions": "mrw"}`
     -   **Ulimits** - A list of ulimits to be set in the container, specified as
           `{ "Name": <name>, "Soft": <soft limit>, "Hard": <hard limit> }`, for example:
-          `Ulimits: { "Name": "nofile", "Soft": 1024, "Hard", 2048 }}`
+          `Ulimits: { "Name": "nofile", "Soft": 1024, "Hard": 2048 }`
     -   **SecurityOpt**: A list of string values to customize labels for MLS
         systems, such as SELinux.
     -   **LogConfig** - Log configuration for the container, specified as
           `{ "Type": "<driver_name>", "Config": {"key1": "val1"}}`.
-          Available types: `json-file`, `syslog`, `none`.
+          Available types: `json-file`, `syslog`, `journald`, `none`.
           `json-file` logging driver.
     -   **CgroupParent** - Path to cgroups under which the cgroup for the container will be created. If the path is not absolute, the path is considered to be relative to the cgroups path of the init process. Cgroups will be created if they do not already exist.
 
@@ -480,7 +482,7 @@ Status Codes:
 Get stdout and stderr logs from the container ``id``
 
 > **Note**:
-> This endpoint works only for containers with `json-file` logging driver.
+> This endpoint works only for containers with the `json-file` or `journald` logging drivers.
 
 **Example request**:
 
@@ -895,7 +897,7 @@ Status Codes:
 
     When using the TTY setting is enabled in
     [`POST /containers/create`
-    ](/reference/api/docker_remote_api_v1.9/#create-a-container "POST /containers/create"),
+    ](#create-a-container),
     the stream is the raw data from the process PTY and client's stdin.
     When the TTY is disabled, then the stream is multiplexed to separate
     stdout and stderr.
@@ -1168,7 +1170,7 @@ the path to the alternate build instructions file to use.
 
 The archive may include any number of other files,
 which will be accessible in the build context (See the [*ADD build
-command*](/reference/builder/#dockerbuilder)).
+command*](../../reference/builder.md#dockerbuilder)).
 
 The build will also be canceled if the client drops the connection by quitting
 or being killed.
@@ -1677,7 +1679,7 @@ Create a new image from a container's changes
 **Example response**:
 
         HTTP/1.1 201 Created
-        Content-Type: application/vnd.docker.raw-stream
+        Content-Type: application/json
 
         {"Id": "596069db4bf5"}
 
@@ -1872,7 +1874,7 @@ Sets up an exec instance in a running container `id`
         Content-Type: application/json
 
         {
-             "Id": "f90e34656806"
+             "Id": "f90e34656806",
              "Warnings":[]
         }
 
@@ -1922,7 +1924,7 @@ Json Parameters:
 
 Status Codes:
 
--   **201** – no error
+-   **200** – no error
 -   **404** – no such exec instance
 
     **Stream details**:

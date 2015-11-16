@@ -4,10 +4,12 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/docker/docker/pkg/integration/checker"
 	"github.com/go-check/check"
 )
 
 func (s *DockerSuite) TestResizeApiResponse(c *check.C) {
+	testRequires(c, DaemonIsLinux)
 	out, _ := dockerCmd(c, "run", "-d", "busybox", "top")
 	cleanedContainerID := strings.TrimSpace(out)
 
@@ -18,6 +20,7 @@ func (s *DockerSuite) TestResizeApiResponse(c *check.C) {
 }
 
 func (s *DockerSuite) TestResizeApiHeightWidthNoInt(c *check.C) {
+	testRequires(c, DaemonIsLinux)
 	out, _ := dockerCmd(c, "run", "-d", "busybox", "top")
 	cleanedContainerID := strings.TrimSpace(out)
 
@@ -28,6 +31,7 @@ func (s *DockerSuite) TestResizeApiHeightWidthNoInt(c *check.C) {
 }
 
 func (s *DockerSuite) TestResizeApiResponseWhenContainerNotStarted(c *check.C) {
+	testRequires(c, DaemonIsLinux)
 	out, _ := dockerCmd(c, "run", "-d", "busybox", "true")
 	cleanedContainerID := strings.TrimSpace(out)
 
@@ -39,7 +43,5 @@ func (s *DockerSuite) TestResizeApiResponseWhenContainerNotStarted(c *check.C) {
 	c.Assert(status, check.Equals, http.StatusInternalServerError)
 	c.Assert(err, check.IsNil)
 
-	if !strings.Contains(string(body), "Cannot resize container") && !strings.Contains(string(body), cleanedContainerID) {
-		c.Fatalf("resize should fail with message 'Cannot resize container' but instead received %s", string(body))
-	}
+	c.Assert(string(body), checker.Contains, "is not running", check.Commentf("resize should fail with message 'Container is not running'"))
 }

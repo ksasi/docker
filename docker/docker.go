@@ -6,8 +6,8 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/client"
-	"github.com/docker/docker/autogen/dockerversion"
 	"github.com/docker/docker/cli"
+	"github.com/docker/docker/dockerversion"
 	flag "github.com/docker/docker/pkg/mflag"
 	"github.com/docker/docker/pkg/reexec"
 	"github.com/docker/docker/pkg/term"
@@ -36,7 +36,7 @@ func main() {
 		help := "\nCommands:\n"
 
 		for _, cmd := range dockerCommands {
-			help += fmt.Sprintf("    %-10.10s%s\n", cmd.name, cmd.description)
+			help += fmt.Sprintf("    %-10.10s%s\n", cmd.Name, cmd.Description)
 		}
 
 		help += "\nRun 'docker COMMAND --help' for more information on a command."
@@ -50,16 +50,16 @@ func main() {
 		return
 	}
 
-	clientCli := client.NewDockerCli(stdin, stdout, stderr, clientFlags)
-	// TODO: remove once `-d` is retired
-	handleGlobalDaemonFlag()
-
 	if *flHelp {
 		// if global flag --help is present, regardless of what other options and commands there are,
 		// just print the usage.
 		flag.Usage()
 		return
 	}
+
+	// TODO: remove once `-d` is retired
+	handleGlobalDaemonFlag()
+	clientCli := client.NewDockerCli(stdin, stdout, stderr, clientFlags)
 
 	c := cli.New(clientCli, daemonCli)
 	if err := c.Run(flag.Args()...); err != nil {
@@ -77,8 +77,8 @@ func main() {
 
 func showVersion() {
 	if utils.ExperimentalBuild() {
-		fmt.Printf("Docker version %s, build %s, experimental\n", dockerversion.VERSION, dockerversion.GITCOMMIT)
+		fmt.Printf("Docker version %s, build %s, experimental\n", dockerversion.Version, dockerversion.GitCommit)
 	} else {
-		fmt.Printf("Docker version %s, build %s\n", dockerversion.VERSION, dockerversion.GITCOMMIT)
+		fmt.Printf("Docker version %s, build %s\n", dockerversion.Version, dockerversion.GitCommit)
 	}
 }

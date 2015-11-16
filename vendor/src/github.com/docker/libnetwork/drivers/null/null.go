@@ -3,6 +3,7 @@ package null
 import (
 	"sync"
 
+	"github.com/docker/libnetwork/datastore"
 	"github.com/docker/libnetwork/driverapi"
 	"github.com/docker/libnetwork/types"
 )
@@ -10,23 +11,19 @@ import (
 const networkType = "null"
 
 type driver struct {
-	network types.UUID
+	network string
 	sync.Mutex
 }
 
 // Init registers a new instance of null driver
-func Init(dc driverapi.DriverCallback) error {
+func Init(dc driverapi.DriverCallback, config map[string]interface{}) error {
 	c := driverapi.Capability{
-		Scope: driverapi.LocalScope,
+		DataScope: datastore.LocalScope,
 	}
 	return dc.RegisterDriver(networkType, &driver{}, c)
 }
 
-func (d *driver) Config(option map[string]interface{}) error {
-	return nil
-}
-
-func (d *driver) CreateNetwork(id types.UUID, option map[string]interface{}) error {
+func (d *driver) CreateNetwork(id string, option map[string]interface{}, ipV4Data, ipV6Data []driverapi.IPAMData) error {
 	d.Lock()
 	defer d.Unlock()
 
@@ -39,32 +36,42 @@ func (d *driver) CreateNetwork(id types.UUID, option map[string]interface{}) err
 	return nil
 }
 
-func (d *driver) DeleteNetwork(nid types.UUID) error {
+func (d *driver) DeleteNetwork(nid string) error {
 	return types.ForbiddenErrorf("network of type \"%s\" cannot be deleted", networkType)
 }
 
-func (d *driver) CreateEndpoint(nid, eid types.UUID, epInfo driverapi.EndpointInfo, epOptions map[string]interface{}) error {
+func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo, epOptions map[string]interface{}) error {
 	return nil
 }
 
-func (d *driver) DeleteEndpoint(nid, eid types.UUID) error {
+func (d *driver) DeleteEndpoint(nid, eid string) error {
 	return nil
 }
 
-func (d *driver) EndpointOperInfo(nid, eid types.UUID) (map[string]interface{}, error) {
+func (d *driver) EndpointOperInfo(nid, eid string) (map[string]interface{}, error) {
 	return make(map[string]interface{}, 0), nil
 }
 
 // Join method is invoked when a Sandbox is attached to an endpoint.
-func (d *driver) Join(nid, eid types.UUID, sboxKey string, jinfo driverapi.JoinInfo, options map[string]interface{}) error {
+func (d *driver) Join(nid, eid string, sboxKey string, jinfo driverapi.JoinInfo, options map[string]interface{}) error {
 	return nil
 }
 
 // Leave method is invoked when a Sandbox detaches from an endpoint.
-func (d *driver) Leave(nid, eid types.UUID) error {
+func (d *driver) Leave(nid, eid string) error {
 	return nil
 }
 
 func (d *driver) Type() string {
 	return networkType
+}
+
+// DiscoverNew is a notification for a new discovery event, such as a new node joining a cluster
+func (d *driver) DiscoverNew(dType driverapi.DiscoveryType, data interface{}) error {
+	return nil
+}
+
+// DiscoverDelete is a notification for a discovery delete event, such as a node leaving a cluster
+func (d *driver) DiscoverDelete(dType driverapi.DiscoveryType, data interface{}) error {
+	return nil
 }

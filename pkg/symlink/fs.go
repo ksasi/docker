@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/docker/docker/pkg/system"
 )
 
 // FollowSymlinkInScope is a wrapper around evalSymlinksInScope that returns an
@@ -120,7 +122,7 @@ func evalSymlinksInScope(path, root string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if filepath.IsAbs(dest) {
+		if system.IsAbs(dest) {
 			b.Reset()
 		}
 		path = dest + string(filepath.Separator) + path
@@ -129,4 +131,13 @@ func evalSymlinksInScope(path, root string) (string, error) {
 	// see note above on "fullP := ..." for why this is double-cleaned and
 	// what's happening here
 	return filepath.Clean(root + filepath.Clean(string(filepath.Separator)+b.String())), nil
+}
+
+// EvalSymlinks returns the path name after the evaluation of any symbolic
+// links.
+// If path is relative the result will be relative to the current directory,
+// unless one of the components is an absolute symbolic link.
+// This version has been updated to support long paths prepended with `\\?\`.
+func EvalSymlinks(path string) (string, error) {
+	return evalSymlinks(path)
 }

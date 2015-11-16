@@ -20,13 +20,14 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api"
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/autogen/dockerversion"
 	"github.com/docker/docker/cliconfig"
+	"github.com/docker/docker/dockerversion"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/signal"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/docker/pkg/term"
 	"github.com/docker/docker/registry"
+	"github.com/docker/docker/utils"
 )
 
 var (
@@ -76,7 +77,7 @@ func (cli *DockerCli) clientRequest(method, path string, in io.Reader, headers m
 		req.Header.Set(k, v)
 	}
 
-	req.Header.Set("User-Agent", "Docker-Client/"+dockerversion.VERSION+" ("+runtime.GOOS+")")
+	req.Header.Set("User-Agent", "Docker-Client/"+dockerversion.Version+" ("+runtime.GOOS+")")
 	req.URL.Host = cli.addr
 	req.URL.Scheme = cli.scheme
 
@@ -96,7 +97,7 @@ func (cli *DockerCli) clientRequest(method, path string, in io.Reader, headers m
 	}
 
 	if err != nil {
-		if types.IsTimeout(err) || strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "dial unix") {
+		if utils.IsTimeout(err) || strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "dial unix") {
 			return serverResp, errConnectionFailed
 		}
 

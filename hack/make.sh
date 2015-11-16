@@ -53,17 +53,15 @@ DEFAULT_BUNDLES=(
 	validate-vet
 
 	binary
+	dynbinary
 
 	test-unit
 	test-integration-cli
 	test-docker-py
 
-	dynbinary
-
 	cover
 	cross
 	tgz
-	ubuntu
 )
 
 VERSION=$(< ./VERSION)
@@ -96,18 +94,17 @@ if [ ! "$GOPATH" ]; then
 	exit 1
 fi
 
-if [ "$DOCKER_EXPERIMENTAL" ]; then
+if [ "$DOCKER_EXPERIMENTAL" ] || [ "$DOCKER_REMAP_ROOT" ]; then
 	echo >&2 '# WARNING! DOCKER_EXPERIMENTAL is set: building experimental features'
 	echo >&2
-	DOCKER_BUILDTAGS+=" experimental"
+	DOCKER_BUILDTAGS+=" experimental pkcs11"
 fi
 
 if [ -z "$DOCKER_CLIENTONLY" ]; then
 	DOCKER_BUILDTAGS+=" daemon"
-fi
-
-if [ "$DOCKER_EXECDRIVER" = 'lxc' ]; then
-	DOCKER_BUILDTAGS+=' test_no_exec'
+	if pkg-config libsystemd-journal 2> /dev/null ; then
+		DOCKER_BUILDTAGS+=" journald"
+	fi
 fi
 
 # test whether "btrfs/version.h" exists and apply btrfs_noversion appropriately
@@ -143,19 +140,16 @@ fi
 EXTLDFLAGS_STATIC='-static'
 # ORIG_BUILDFLAGS is necessary for the cross target which cannot always build
 # with options like -race.
-ORIG_BUILDFLAGS=( -a -tags "netgo static_build $DOCKER_BUILDTAGS" -installsuffix netgo )
+ORIG_BUILDFLAGS=( -a -tags "autogen netgo static_build sqlite_omit_load_extension $DOCKER_BUILDTAGS" -installsuffix netgo )
 # see https://github.com/golang/go/issues/9369#issuecomment-69864440 for why -installsuffix is necessary here
 BUILDFLAGS=( $BUILDFLAGS "${ORIG_BUILDFLAGS[@]}" )
 # Test timeout.
 : ${TIMEOUT:=60m}
 TESTFLAGS+=" -test.timeout=${TIMEOUT}"
 
-# A few more flags that are specific just to building a completely-static binary (see hack/make/binary)
-# PLEASE do not use these anywhere else.
-EXTLDFLAGS_STATIC_DOCKER="$EXTLDFLAGS_STATIC -lpthread -Wl,--unresolved-symbols=ignore-in-object-files"
 LDFLAGS_STATIC_DOCKER="
 	$LDFLAGS_STATIC
-	-extldflags \"$EXTLDFLAGS_STATIC_DOCKER\"
+	-extldflags \"$EXTLDFLAGS_STATIC\"
 "
 
 if [ "$(uname -s)" = 'FreeBSD' ]; then
@@ -216,10 +210,10 @@ test_env() {
 	# use "env -i" to tightly control the environment variables that bleed into the tests
 	env -i \
 		DEST="$DEST" \
-		DOCKER_EXECDRIVER="$DOCKER_EXECDRIVER" \
 		DOCKER_GRAPHDRIVER="$DOCKER_GRAPHDRIVER" \
 		DOCKER_USERLANDPROXY="$DOCKER_USERLANDPROXY" \
 		DOCKER_HOST="$DOCKER_HOST" \
+		DOCKER_REMAP_ROOT="$DOCKER_REMAP_ROOT" \
 		DOCKER_REMOTE_DAEMON="$DOCKER_REMOTE_DAEMON" \
 		GOPATH="$GOPATH" \
 		HOME="$ABS_DEST/fake-HOME" \
@@ -234,25 +228,6 @@ binary_extension() {
 	if [ "$(go env GOOS)" = 'windows' ]; then
 		echo -n '.exe'
 	fi
-}
-
-# This helper function walks the current directory looking for directories
-# holding certain files ($1 parameter), and prints their paths on standard
-# output, one per line.
-find_dirs() {
-	find . -not \( \
-		\( \
-			-path './vendor/*' \
-			-o -path './integration-cli/*' \
-			-o -path './contrib/*' \
-			-o -path './pkg/mflag/example/*' \
-			-o -path './.git/*' \
-			-o -path './bundles/*' \
-			-o -path './docs/*' \
-			-o -path './pkg/libcontainer/nsinit/*' \
-		\) \
-		-prune \
-	\) -name "$1" -print0 | xargs -0n1 dirname | sort -u
 }
 
 hash_files() {

@@ -8,9 +8,13 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
+// ActivateLayer will find the layer with the given id and mount it's filesystem.
+// For a read/write layer, the mounted filesystem will appear as a volume on the
+// host, while a read-only layer is generally expected to be a no-op.
+// An activated layer must later be deactivated via DeactivateLayer.
 func ActivateLayer(info DriverInfo, id string) error {
 	title := "hcsshim::ActivateLayer "
-	logrus.Debugf(title+"Flavour %s ID %s", info.Flavour, id)
+	logrus.Debugf(title+"Flavour %d ID %s", info.Flavour, id)
 
 	// Load the DLL and get a handle to the procedure we need
 	dll, proc, err := loadAndFind(procActivateLayer)

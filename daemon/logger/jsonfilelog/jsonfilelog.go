@@ -7,29 +7,20 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strconv"
 	"sync"
-	"time"
-
-	"gopkg.in/fsnotify.v1"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/logger"
-	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/jsonlog"
 	"github.com/docker/docker/pkg/pubsub"
-	"github.com/docker/docker/pkg/tailfile"
 	"github.com/docker/docker/pkg/timeutils"
 	"github.com/docker/docker/pkg/units"
 )
 
-const (
-	// Name is the name of the file that the jsonlogger logs to.
-	Name               = "json-file"
-	maxJSONDecodeRetry = 10
-)
+// Name is the name of the file that the jsonlogger logs to.
+const Name = "json-file"
 
 // JSONFileLogger is Logger implementation for default Docker logging.
 type JSONFileLogger struct {
@@ -41,6 +32,7 @@ type JSONFileLogger struct {
 	ctx          logger.Context
 	readers      map[*logger.LogWatcher]struct{} // stores the active log followers
 	notifyRotate *pubsub.Publisher
+	extra        []byte // json-encoded extra attributes
 }
 
 func init() {
@@ -77,6 +69,16 @@ func New(ctx logger.Context) (logger.Logger, error) {
 			return nil, fmt.Errorf("max-file cannot be less than 1")
 		}
 	}
+
+	var extra []byte
+	if attrs := ctx.ExtraAttributes(nil); len(attrs) > 0 {
+		var err error
+		extra, err = json.Marshal(attrs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &JSONFileLogger{
 		f:            log,
 		buf:          bytes.NewBuffer(nil),
@@ -85,6 +87,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		n:            maxFiles,
 		readers:      make(map[*logger.LogWatcher]struct{}),
 		notifyRotate: pubsub.NewPublisher(0, 1),
+		extra:        extra,
 	}, nil
 }
 
@@ -97,7 +100,12 @@ func (l *JSONFileLogger) Log(msg *logger.Message) error {
 	if err != nil {
 		return err
 	}
-	err = (&jsonlog.JSONLogs{Log: append(msg.Line, '\n'), Stream: msg.Source, Created: timestamp}).MarshalJSONBuf(l.buf)
+	err = (&jsonlog.JSONLogs{
+		Log:      append(msg.Line, '\n'),
+		Stream:   msg.Source,
+		Created:  timestamp,
+		RawAttrs: l.extra,
+	}).MarshalJSONBuf(l.buf)
 	if err != nil {
 		return err
 	}
@@ -181,6 +189,8 @@ func ValidateLogOpt(cfg map[string]string) error {
 		switch key {
 		case "max-file":
 		case "max-size":
+		case "labels":
+		case "env":
 		default:
 			return fmt.Errorf("unknown log opt '%s' for json-file log driver", key)
 		}
@@ -208,183 +218,4 @@ func (l *JSONFileLogger) Close() error {
 // Name returns name of this logger.
 func (l *JSONFileLogger) Name() string {
 	return Name
-}
-
-func decodeLogLine(dec *json.Decoder, l *jsonlog.JSONLog) (*logger.Message, error) {
-	l.Reset()
-	if err := dec.Decode(l); err != nil {
-		return nil, err
-	}
-	msg := &logger.Message{
-		Source:    l.Stream,
-		Timestamp: l.Created,
-		Line:      []byte(l.Log),
-	}
-	return msg, nil
-}
-
-// ReadLogs implements the logger's LogReader interface for the logs
-// created by this driver.
-func (l *JSONFileLogger) ReadLogs(config logger.ReadConfig) *logger.LogWatcher {
-	logWatcher := logger.NewLogWatcher()
-
-	go l.readLogs(logWatcher, config)
-	return logWatcher
-}
-
-func (l *JSONFileLogger) readLogs(logWatcher *logger.LogWatcher, config logger.ReadConfig) {
-	defer close(logWatcher.Msg)
-
-	pth := l.ctx.LogPath
-	var files []io.ReadSeeker
-	for i := l.n; i > 1; i-- {
-		f, err := os.Open(fmt.Sprintf("%s.%d", pth, i-1))
-		if err != nil {
-			if !os.IsNotExist(err) {
-				logWatcher.Err <- err
-				break
-			}
-			continue
-		}
-		defer f.Close()
-		files = append(files, f)
-	}
-
-	latestFile, err := os.Open(pth)
-	if err != nil {
-		logWatcher.Err <- err
-		return
-	}
-	defer latestFile.Close()
-
-	files = append(files, latestFile)
-	tailer := ioutils.MultiReadSeeker(files...)
-
-	if config.Tail != 0 {
-		tailFile(tailer, logWatcher, config.Tail, config.Since)
-	}
-
-	if !config.Follow {
-		return
-	}
-
-	if config.Tail >= 0 {
-		latestFile.Seek(0, os.SEEK_END)
-	}
-
-	l.mu.Lock()
-	l.readers[logWatcher] = struct{}{}
-	l.mu.Unlock()
-
-	notifyRotate := l.notifyRotate.Subscribe()
-	followLogs(latestFile, logWatcher, notifyRotate, config.Since)
-
-	l.mu.Lock()
-	delete(l.readers, logWatcher)
-	l.mu.Unlock()
-
-	l.notifyRotate.Evict(notifyRotate)
-}
-
-func tailFile(f io.ReadSeeker, logWatcher *logger.LogWatcher, tail int, since time.Time) {
-	var rdr io.Reader = f
-	if tail > 0 {
-		ls, err := tailfile.TailFile(f, tail)
-		if err != nil {
-			logWatcher.Err <- err
-			return
-		}
-		rdr = bytes.NewBuffer(bytes.Join(ls, []byte("\n")))
-	}
-	dec := json.NewDecoder(rdr)
-	l := &jsonlog.JSONLog{}
-	for {
-		msg, err := decodeLogLine(dec, l)
-		if err != nil {
-			if err != io.EOF {
-				logWatcher.Err <- err
-			}
-			return
-		}
-		if !since.IsZero() && msg.Timestamp.Before(since) {
-			continue
-		}
-		logWatcher.Msg <- msg
-	}
-}
-
-func followLogs(f *os.File, logWatcher *logger.LogWatcher, notifyRotate chan interface{}, since time.Time) {
-	dec := json.NewDecoder(f)
-	l := &jsonlog.JSONLog{}
-	fileWatcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		logWatcher.Err <- err
-		return
-	}
-	defer fileWatcher.Close()
-	if err := fileWatcher.Add(f.Name()); err != nil {
-		logWatcher.Err <- err
-		return
-	}
-
-	var retries int
-	for {
-		msg, err := decodeLogLine(dec, l)
-		if err != nil {
-			if err != io.EOF {
-				// try again because this shouldn't happen
-				if _, ok := err.(*json.SyntaxError); ok && retries <= maxJSONDecodeRetry {
-					dec = json.NewDecoder(f)
-					retries++
-					continue
-				}
-				logWatcher.Err <- err
-				return
-			}
-
-			select {
-			case <-fileWatcher.Events:
-				dec = json.NewDecoder(f)
-				continue
-			case <-fileWatcher.Errors:
-				logWatcher.Err <- err
-				return
-			case <-logWatcher.WatchClose():
-				return
-			case <-notifyRotate:
-				fileWatcher.Remove(f.Name())
-
-				f, err = os.Open(f.Name())
-				if err != nil {
-					logWatcher.Err <- err
-					return
-				}
-				if err := fileWatcher.Add(f.Name()); err != nil {
-					logWatcher.Err <- err
-				}
-				dec = json.NewDecoder(f)
-				continue
-			}
-		}
-
-		retries = 0 // reset retries since we've succeeded
-		if !since.IsZero() && msg.Timestamp.Before(since) {
-			continue
-		}
-		select {
-		case logWatcher.Msg <- msg:
-		case <-logWatcher.WatchClose():
-			logWatcher.Msg <- msg
-			for {
-				msg, err := decodeLogLine(dec, l)
-				if err != nil {
-					return
-				}
-				if !since.IsZero() && msg.Timestamp.Before(since) {
-					continue
-				}
-				logWatcher.Msg <- msg
-			}
-		}
-	}
 }

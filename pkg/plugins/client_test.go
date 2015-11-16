@@ -30,7 +30,7 @@ func teardownRemotePluginServer() {
 
 func TestFailedConnection(t *testing.T) {
 	c, _ := NewClient("tcp://127.0.0.1:1", tlsconfig.Options{InsecureSkipVerify: true})
-	err := c.callWithRetry("Service.Method", nil, nil, false)
+	_, err := c.callWithRetry("Service.Method", nil, false)
 	if err == nil {
 		t.Fatal("Unexpected successful connection")
 	}
@@ -102,6 +102,22 @@ func TestAbortRetry(t *testing.T) {
 		s := c.timeOff * time.Second
 		if a := abort(time.Now(), s); a != c.expAbort {
 			t.Fatalf("Duration %v, expected %v, was %v\n", c.timeOff, s, a)
+		}
+	}
+}
+
+func TestClientScheme(t *testing.T) {
+	cases := map[string]string{
+		"tcp://127.0.0.1:8080":          "http",
+		"unix:///usr/local/plugins/foo": "http",
+		"http://127.0.0.1:8080":         "http",
+		"https://127.0.0.1:8080":        "https",
+	}
+
+	for addr, scheme := range cases {
+		c, _ := NewClient(addr, tlsconfig.Options{InsecureSkipVerify: true})
+		if c.scheme != scheme {
+			t.Fatalf("URL scheme mismatch, expected %s, got %s", scheme, c.scheme)
 		}
 	}
 }

@@ -1,11 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -22,11 +21,17 @@ type testRequirement struct {
 
 // List test requirements
 var (
-	daemonExecDriver string
-
+	DaemonIsWindows = testRequirement{
+		func() bool { return daemonPlatform == "windows" },
+		"Test requires a Windows daemon",
+	}
+	DaemonIsLinux = testRequirement{
+		func() bool { return daemonPlatform == "linux" },
+		"Test requires a Linux daemon",
+	}
 	SameHostDaemon = testRequirement{
 		func() bool { return isLocalDaemon },
-		"Test requires docker daemon to runs on the same machine as CLI",
+		"Test requires docker daemon to run on the same machine as CLI",
 	}
 	UnixCli = testRequirement{
 		func() bool { return isUnixCli },
@@ -84,30 +89,6 @@ var (
 		},
 		fmt.Sprintf("Test requires an environment that can host %s in the same host", notaryBinary),
 	}
-	NativeExecDriver = testRequirement{
-		func() bool {
-			if daemonExecDriver == "" {
-				// get daemon info
-				status, body, err := sockRequest("GET", "/info", nil)
-				if err != nil || status != http.StatusOK {
-					log.Fatalf("sockRequest failed for /info: %v", err)
-				}
-
-				type infoJSON struct {
-					ExecutionDriver string
-				}
-				var info infoJSON
-				if err = json.Unmarshal(body, &info); err != nil {
-					log.Fatalf("unable to unmarshal body: %v", err)
-				}
-
-				daemonExecDriver = info.ExecutionDriver
-			}
-
-			return strings.HasPrefix(daemonExecDriver, "native")
-		},
-		"Test requires the native (libcontainer) exec driver.",
-	}
 	NotOverlay = testRequirement{
 		func() bool {
 			cmd := exec.Command("grep", "^overlay / overlay", "/proc/mounts")
@@ -128,6 +109,26 @@ var (
 			return false
 		},
 		"Test requires support for IPv6",
+	}
+	NotGCCGO = testRequirement{
+		func() bool {
+			out, err := exec.Command("go", "version").Output()
+			if err == nil && strings.Contains(string(out), "gccgo") {
+				return false
+			}
+			return true
+		},
+		"Test requires native Golang compiler instead of GCCGO",
+	}
+	NotUserNamespace = testRequirement{
+		func() bool {
+			root := os.Getenv("DOCKER_REMAP_ROOT")
+			if root != "" {
+				return false
+			}
+			return true
+		},
+		"Test cannot be run when remapping root",
 	}
 )
 

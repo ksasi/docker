@@ -26,7 +26,7 @@ The following is a sample output from the `docker stats` command
     redis2              0.07%               2.746 MB / 64 MB      4.29%               1.266 KB / 648 B    12.4 MB / 0 B
 
 
-The [docker stats](/reference/commandline/stats/) reference page has
+The [docker stats](../reference/commandline/stats.md) reference page has
 more details about the `docker stats` command.
 
 ## Control groups
@@ -78,7 +78,7 @@ in `docker ps`, its long ID might be something like
 look it up with `docker inspect` or `docker ps --no-trunc`.
 
 Putting everything together to look at the memory metrics for a Docker
-container, take a look at `/sys/fs/cgroup/memory/lxc/<longid>/`.
+container, take a look at `/sys/fs/cgroup/memory/docker/<longid>/`.
 
 ## Metrics from cgroups: memory, CPU, block I/O
 
@@ -335,7 +335,7 @@ layer; you will also have to add traffic going through the userland
 proxy.
 
 Then, you will need to check those counters on a regular basis. If you
-happen to use `collectd`, there is a [nice plugin](https://collectd.org/wiki/index.php/Plugin:IPTables)
+happen to use `collectd`, there is a [nice plugin](https://collectd.org/wiki/index.php/Table_of_Plugins)
 to automate iptables counters collection.
 
 ### Interface-level counters
@@ -396,7 +396,7 @@ control group (i.e., in the container). Pick any one of them.
 Putting everything together, if the "short ID" of a container is held in
 the environment variable `$CID`, then you can do this:
 
-    $ TASKS=/sys/fs/cgroup/devices/$CID*/tasks
+    $ TASKS=/sys/fs/cgroup/devices/docker/$CID*/tasks
     $ PID=$(head -n 1 $TASKS)
     $ mkdir -p /var/run/netns
     $ ln -sf /proc/$PID/ns/net /var/run/netns/$CID

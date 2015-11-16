@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/docker/distribution/digest"
-	"github.com/docker/distribution/manifest"
+	"github.com/docker/distribution/manifest/schema1"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/pkg/stringutils"
 	"github.com/docker/docker/utils"
 	"github.com/go-check/check"
 )
@@ -60,6 +62,7 @@ func setupImageWithTag(c *check.C, tag string) (digest.Digest, error) {
 }
 
 func (s *DockerRegistrySuite) TestPullByTagDisplaysDigest(c *check.C) {
+	testRequires(c, DaemonIsLinux)
 	pushDigest, err := setupImage(c)
 	if err != nil {
 		c.Fatalf("error setting up image: %v", err)
@@ -82,6 +85,7 @@ func (s *DockerRegistrySuite) TestPullByTagDisplaysDigest(c *check.C) {
 }
 
 func (s *DockerRegistrySuite) TestPullByDigest(c *check.C) {
+	testRequires(c, DaemonIsLinux)
 	pushDigest, err := setupImage(c)
 	if err != nil {
 		c.Fatalf("error setting up image: %v", err)
@@ -105,6 +109,7 @@ func (s *DockerRegistrySuite) TestPullByDigest(c *check.C) {
 }
 
 func (s *DockerRegistrySuite) TestPullByDigestNoFallback(c *check.C) {
+	testRequires(c, DaemonIsLinux)
 	// pull from the registry using the <name>@<digest> reference
 	imageReference := fmt.Sprintf("%s@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", repoName)
 	out, _, err := dockerCmdWithError("pull", imageReference)
@@ -387,6 +392,64 @@ func (s *DockerRegistrySuite) TestListImagesWithDigests(c *check.C) {
 	}
 }
 
+func (s *DockerRegistrySuite) TestInspectImageWithDigests(c *check.C) {
+	digest, err := setupImage(c)
+	c.Assert(err, check.IsNil, check.Commentf("error setting up image: %v", err))
+
+	imageReference := fmt.Sprintf("%s@%s", repoName, digest)
+
+	// pull from the registry using the <name>@<digest> reference
+	dockerCmd(c, "pull", imageReference)
+
+	out, _ := dockerCmd(c, "inspect", imageReference)
+
+	var imageJSON []types.ImageInspect
+	if err = json.Unmarshal([]byte(out), &imageJSON); err != nil {
+		c.Fatalf("unable to unmarshal body for latest version: %v", err)
+	}
+
+	c.Assert(len(imageJSON), check.Equals, 1)
+	c.Assert(len(imageJSON[0].RepoDigests), check.Equals, 1)
+	c.Assert(stringutils.InSlice(imageJSON[0].RepoDigests, imageReference), check.Equals, true)
+}
+
+func (s *DockerRegistrySuite) TestPsListContainersFilterAncestorImageByDigest(c *check.C) {
+	digest, err := setupImage(c)
+	c.Assert(err, check.IsNil, check.Commentf("error setting up image: %v", err))
+
+	imageReference := fmt.Sprintf("%s@%s", repoName, digest)
+
+	// pull from the registry using the <name>@<digest> reference
+	dockerCmd(c, "pull", imageReference)
+
+	// build a image from it
+	imageName1 := "images_ps_filter_test"
+	_, err = buildImage(imageName1, fmt.Sprintf(
+		`FROM %s
+		 LABEL match me 1`, imageReference), true)
+	c.Assert(err, check.IsNil)
+
+	// run a container based on that
+	out, _ := dockerCmd(c, "run", "-d", imageReference, "echo", "hello")
+	expectedID := strings.TrimSpace(out)
+
+	// run a container based on the a descendant of that too
+	out, _ = dockerCmd(c, "run", "-d", imageName1, "echo", "hello")
+	expectedID1 := strings.TrimSpace(out)
+
+	expectedIDs := []string{expectedID, expectedID1}
+
+	// Invalid imageReference
+	out, _ = dockerCmd(c, "ps", "-a", "-q", "--no-trunc", fmt.Sprintf("--filter=ancestor=busybox@%s", digest))
+	if strings.TrimSpace(out) != "" {
+		c.Fatalf("Expected filter container for %s ancestor filter to be empty, got %v", fmt.Sprintf("busybox@%s", digest), strings.TrimSpace(out))
+	}
+
+	// Valid imageReference
+	out, _ = dockerCmd(c, "ps", "-a", "-q", "--no-trunc", "--filter=ancestor="+imageReference)
+	checkPsAncestorFilterOutput(c, out, imageReference, expectedIDs)
+}
+
 func (s *DockerRegistrySuite) TestDeleteImageByIDOnlyPulledByDigest(c *check.C) {
 	pushDigest, err := setupImage(c)
 	if err != nil {
@@ -409,6 +472,7 @@ func (s *DockerRegistrySuite) TestDeleteImageByIDOnlyPulledByDigest(c *check.C) 
 // TestPullFailsWithAlteredManifest tests that a `docker pull` fails when
 // we have modified a manifest blob and its digest cannot be verified.
 func (s *DockerRegistrySuite) TestPullFailsWithAlteredManifest(c *check.C) {
+	testRequires(c, DaemonIsLinux)
 	manifestDigest, err := setupImage(c)
 	if err != nil {
 		c.Fatalf("error setting up image: %v", err)
@@ -417,22 +481,22 @@ func (s *DockerRegistrySuite) TestPullFailsWithAlteredManifest(c *check.C) {
 	// Load the target manifest blob.
 	manifestBlob := s.reg.readBlobContents(c, manifestDigest)
 
-	var imgManifest manifest.Manifest
+	var imgManifest schema1.Manifest
 	if err := json.Unmarshal(manifestBlob, &imgManifest); err != nil {
 		c.Fatalf("unable to decode image manifest from blob: %s", err)
 	}
 
-	// Add a malicious layer digest to the list of layers in the manifest.
-	imgManifest.FSLayers = append(imgManifest.FSLayers, manifest.FSLayer{
+	// Change a layer in the manifest.
+	imgManifest.FSLayers[0] = schema1.FSLayer{
 		BlobSum: digest.Digest("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
-	})
+	}
 
 	// Move the existing data file aside, so that we can replace it with a
 	// malicious blob of data. NOTE: we defer the returned undo func.
 	undo := s.reg.tempMoveBlobData(c, manifestDigest)
 	defer undo()
 
-	alteredManifestBlob, err := json.Marshal(imgManifest)
+	alteredManifestBlob, err := json.MarshalIndent(imgManifest, "", "   ")
 	if err != nil {
 		c.Fatalf("unable to encode altered image manifest to JSON: %s", err)
 	}
@@ -458,6 +522,7 @@ func (s *DockerRegistrySuite) TestPullFailsWithAlteredManifest(c *check.C) {
 // TestPullFailsWithAlteredLayer tests that a `docker pull` fails when
 // we have modified a layer blob and its digest cannot be verified.
 func (s *DockerRegistrySuite) TestPullFailsWithAlteredLayer(c *check.C) {
+	testRequires(c, DaemonIsLinux)
 	manifestDigest, err := setupImage(c)
 	if err != nil {
 		c.Fatalf("error setting up image: %v", err)
@@ -466,7 +531,7 @@ func (s *DockerRegistrySuite) TestPullFailsWithAlteredLayer(c *check.C) {
 	// Load the target manifest blob.
 	manifestBlob := s.reg.readBlobContents(c, manifestDigest)
 
-	var imgManifest manifest.Manifest
+	var imgManifest schema1.Manifest
 	if err := json.Unmarshal(manifestBlob, &imgManifest); err != nil {
 		c.Fatalf("unable to decode image manifest from blob: %s", err)
 	}

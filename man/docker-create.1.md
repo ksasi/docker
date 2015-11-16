@@ -9,7 +9,8 @@ docker-create - Create a new container
 [**-a**|**--attach**[=*[]*]]
 [**--add-host**[=*[]*]]
 [**--blkio-weight**[=*[BLKIO-WEIGHT]*]]
-[**-c**|**--cpu-shares**[=*0*]]
+[**--blkio-weight-device**[=*[]*]]
+[**--cpu-shares**[=*0*]]
 [**--cap-add**[=*[]*]]
 [**--cap-drop**[=*[]*]]
 [**--cgroup-parent**[=*CGROUP-PATH*]]
@@ -21,6 +22,7 @@ docker-create - Create a new container
 [**--device**[=*[]*]]
 [**--dns**[=*[]*]]
 [**--dns-search**[=*[]*]]
+[**--dns-opt**[=*[]*]]
 [**-e**|**--env**[=*[]*]]
 [**--entrypoint**[=*ENTRYPOINT*]]
 [**--env-file**[=*[]*]]
@@ -30,14 +32,15 @@ docker-create - Create a new container
 [**--help**]
 [**-i**|**--interactive**[=*false*]]
 [**--ipc**[=*IPC*]]
+[**--kernel-memory**[=*KERNEL-MEMORY*]]
 [**-l**|**--label**[=*[]*]]
 [**--label-file**[=*[]*]]
 [**--link**[=*[]*]]
 [**--log-driver**[=*[]*]]
 [**--log-opt**[=*[]*]]
-[**--lxc-conf**[=*[]*]]
 [**-m**|**--memory**[=*MEMORY*]]
 [**--mac-address**[=*MAC-ADDRESS*]]
+[**--memory-reservation**[=*MEMORY-RESERVATION*]]
 [**--memory-swap**[=*MEMORY-SWAP*]]
 [**--memory-swappiness**[=*MEMORY-SWAPPINESS*]]
 [**--name**[=*NAME*]]
@@ -50,6 +53,7 @@ docker-create - Create a new container
 [**--read-only**[=*false*]]
 [**--restart**[=*RESTART*]]
 [**--security-opt**[=*[]*]]
+[**--stop-signal**[=*SIGNAL*]]
 [**-t**|**--tty**[=*false*]]
 [**-u**|**--user**[=*USER*]]
 [**--ulimit**[=*[]*]]
@@ -76,10 +80,13 @@ The initial status of the container created with **docker create** is 'created'.
 **--add-host**=[]
    Add a custom host-to-IP mapping (host:ip)
 
-**--blkio-weight**=0
+**--blkio-weight**=*0*
    Block IO weight (relative weight) accepts a weight value between 10 and 1000.
 
-**-c**, **--cpu-shares**=0
+**--blkio-weight-device**=[]
+   Block IO weight (relative device weight, format: `DEVICE_NAME:WEIGHT`).
+
+**--cpu-shares**=*0*
    CPU shares (relative weight)
 
 **--cap-add**=[]
@@ -94,7 +101,7 @@ The initial status of the container created with **docker create** is 'created'.
 **--cidfile**=""
    Write the container ID to the file
 
-**--cpu-period**=0
+**--cpu-period**=*0*
     Limit the CPU CFS (Completely Fair Scheduler) period
 
 **--cpuset-cpus**=""
@@ -107,7 +114,7 @@ The initial status of the container created with **docker create** is 'created'.
 then processes in your Docker container will only use memory from the first
 two memory nodes.
 
-**--cpu-quota**=0
+**--cpu-quota**=*0*
    Limit the CPU CFS (Completely Fair Scheduler) quota
 
 **--device**=[]
@@ -115,6 +122,9 @@ two memory nodes.
 
 **--dns**=[]
    Set custom DNS servers
+
+**--dns-opt**=[]
+   Set custom DNS options
 
 **--dns-search**=[]
    Set custom DNS search domains (Use --dns-search=. if you don't wish to set the search domain)
@@ -148,6 +158,15 @@ two memory nodes.
                                'container:<name|id>': reuses another container shared memory, semaphores and message queues
                                'host': use the host shared memory,semaphores and message queues inside the container.  Note: the host mode gives the container full access to local shared memory and is therefore considered insecure.
 
+**--kernel-memory**=""
+   Kernel memory limit (format: `<number>[<unit>]`, where unit = b, k, m or g)
+
+   Constrains the kernel memory available to a container. If a limit of 0
+is specified (not using `--kernel-memory`), the container's kernel memory
+is not limited. If you specify a limit, it may be rounded up to a multiple
+of the operating system's page size and the value can be very large,
+millions of trillions.
+
 **-l**, **--label**=[]
    Adds metadata to a container (e.g., --label=com.example.key=value)
 
@@ -158,18 +177,16 @@ two memory nodes.
    Add link to another container in the form of <name or id>:alias or just
    <name or id> in which case the alias will match the name.
 
-**--log-driver**="|*json-file*|*syslog*|*journald*|*gelf*|*fluentd*|*none*"
+**--log-driver**="*json-file*|*syslog*|*journald*|*gelf*|*fluentd*|*awslogs*|*splunk*|*none*"
   Logging driver for container. Default is defined by daemon `--log-driver` flag.
-  **Warning**: `docker logs` command works only for `json-file` logging driver.
+  **Warning**: the `docker logs` command works only for the `json-file` and
+  `journald` logging drivers.
 
 **--log-opt**=[]
   Logging driver specific options.
 
-**--lxc-conf**=[]
-   (lxc exec-driver only) Add custom lxc options --lxc-conf="lxc.cgroup.cpuset.cpus = 0,1"
-
 **-m**, **--memory**=""
-   Memory limit (format: <number><optional unit>, where unit = b, k, m or g)
+   Memory limit (format: <number>[<unit>], where unit = b, k, m or g)
 
    Allows you to constrain the memory available to a container. If the host
 supports swap memory, then the **-m** memory setting can be larger than physical
@@ -180,10 +197,19 @@ system's page size (the value would be very large, that's millions of trillions)
 **--mac-address**=""
    Container MAC address (e.g. 92:d0:c6:0a:29:33)
 
+**--memory-reservation**=""
+   Memory soft limit (format: <number>[<unit>], where unit = b, k, m or g)
+
+   After setting memory reservation, when the system detects memory contention
+or low memory, containers are forced to restrict their consumption to their
+reservation. So you should always set the value below **--memory**, otherwise the
+hard limit will take precedence. By default, memory reservation will be the same
+as memory limit.
+
 **--memory-swap**=""
    Total memory limit (memory + swap)
 
-   Set `-1` to disable swap (format: <number><optional unit>, where unit = b, k, m or g).
+   Set `-1` to disable swap (format: <number>[<unit>], where unit = b, k, m or g).
 This value should always larger than **-m**, so you should always use this with **-m**.
 
 **--memory-swappiness**=""
@@ -192,7 +218,7 @@ This value should always larger than **-m**, so you should always use this with 
 **--name**=""
    Assign a name to the container
 
-**--net**="bridge"
+**--net**="*bridge*"
    Set the Network mode for the container
                                'bridge': creates a new network stack for the container on the docker bridge
                                'none': no networking for this container
@@ -212,7 +238,7 @@ This value should always larger than **-m**, so you should always use this with 
                                When specifying ranges for both, the number of container ports in the range must match the number of host ports in the range. (e.g., `-p 1234-1236:1234-1236/tcp`)
                                (use 'docker port' to see the actual mapping)
 
-**--pid**=host
+**--pid**=*host*
    Set the PID mode for the container
      **host**: use the host's PID namespace inside the container.
      Note: the host mode gives the container full access to local PID and is therefore considered insecure.
@@ -223,11 +249,14 @@ This value should always larger than **-m**, so you should always use this with 
 **--read-only**=*true*|*false*
    Mount the container's root filesystem as read only.
 
-**--restart**="no"
-   Restart policy to apply when a container exits (no, on-failure[:max-retry], always)
+**--restart**="*no*"
+   Restart policy to apply when a container exits (no, on-failure[:max-retry], always, unless-stopped).
 
 **--security-opt**=[]
    Security Options
+
+**--stop-signal**=*SIGTERM*
+  Signal to stop a container. Default is SIGTERM.
 
 **-t**, **--tty**=*true*|*false*
    Allocate a pseudo-TTY. The default is *false*.
@@ -238,7 +267,7 @@ This value should always larger than **-m**, so you should always use this with 
 **--ulimit**=[]
    Ulimit options
 
-**--uts**=host
+**--uts**=*host*
    Set the UTS mode for the container
      **host**: use the host's UTS namespace inside the container.
      Note: the host mode gives the container access to changing the host's hostname and is therefore considered insecure.

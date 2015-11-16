@@ -8,9 +8,11 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
+// LayerExists will return true if a layer with the given id exists and is known
+// to the system.
 func LayerExists(info DriverInfo, id string) (bool, error) {
 	title := "hcsshim::LayerExists "
-	logrus.Debugf(title+"Flavour %s ID %s", info.Flavour, id)
+	logrus.Debugf(title+"Flavour %d ID %s", info.Flavour, id)
 
 	// Load the DLL and get a handle to the procedure we need
 	dll, proc, err := loadAndFind(procLayerExists)
@@ -55,6 +57,6 @@ func LayerExists(info DriverInfo, id string) (bool, error) {
 		return false, err
 	}
 
-	logrus.Debugf(title+" - succeeded id=%s flavour=%d exists=%d", id, info.Flavour, exists)
+	logrus.Debugf(title+"succeeded flavour=%d id=%s exists=%d", info.Flavour, id, exists)
 	return exists, nil
 }

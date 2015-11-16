@@ -16,34 +16,62 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/autogen/dockerversion"
 	"github.com/docker/docker/daemon/graphdriver"
+	"github.com/docker/docker/dockerversion"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
+	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/random"
 	"github.com/microsoft/hcsshim"
 )
 
+// init registers the windows graph drivers to the register.
 func init() {
 	graphdriver.Register("windowsfilter", InitFilter)
 	graphdriver.Register("windowsdiff", InitDiff)
 }
 
 const (
+	// diffDriver is an hcsshim driver type
 	diffDriver = iota
+	// filterDriver is an hcsshim driver type
 	filterDriver
 )
 
-type Driver struct {
-	info       hcsshim.DriverInfo
-	sync.Mutex // Protects concurrent modification to active
-	active     map[string]int
+// CustomImageDescriptor is an image descriptor for use by RestoreCustomImages
+type customImageDescriptor struct {
+	img *image.Image
 }
 
-// New returns a new Windows storage filter driver.
-func InitFilter(home string, options []string) (graphdriver.Driver, error) {
+// ID returns the image ID specified in the image structure.
+func (img customImageDescriptor) ID() string {
+	return img.img.ID
+}
+
+// Parent returns the parent ID - in this case, none
+func (img customImageDescriptor) Parent() string {
+	return ""
+}
+
+// MarshalConfig renders the image structure into JSON.
+func (img customImageDescriptor) MarshalConfig() ([]byte, error) {
+	return json.Marshal(img.img)
+}
+
+// Driver represents a windows graph driver.
+type Driver struct {
+	// info stores the shim driver information
+	info hcsshim.DriverInfo
+	// Mutex protects concurrent modification to active
+	sync.Mutex
+	// active stores references to the activated layers
+	active map[string]int
+}
+
+// InitFilter returns a new Windows storage filter driver.
+func InitFilter(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (graphdriver.Driver, error) {
 	logrus.Debugf("WindowsGraphDriver InitFilter at %s", home)
 	d := &Driver{
 		info: hcsshim.DriverInfo{
@@ -55,8 +83,8 @@ func InitFilter(home string, options []string) (graphdriver.Driver, error) {
 	return d, nil
 }
 
-// New returns a new Windows differencing disk driver.
-func InitDiff(home string, options []string) (graphdriver.Driver, error) {
+// InitDiff returns a new Windows differencing disk driver.
+func InitDiff(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (graphdriver.Driver, error) {
 	logrus.Debugf("WindowsGraphDriver InitDiff at %s", home)
 	d := &Driver{
 		info: hcsshim.DriverInfo{
@@ -68,6 +96,7 @@ func InitDiff(home string, options []string) (graphdriver.Driver, error) {
 	return d, nil
 }
 
+// String returns the string representation of a driver.
 func (d *Driver) String() string {
 	switch d.info.Flavour {
 	case diffDriver:
@@ -79,28 +108,29 @@ func (d *Driver) String() string {
 	}
 }
 
+// Status returns the status of the driver.
 func (d *Driver) Status() [][2]string {
 	return [][2]string{
 		{"Windows", ""},
 	}
 }
 
-// Exists returns true if the given id is registered with
-// this driver
+// Exists returns true if the given id is registered with this driver.
 func (d *Driver) Exists(id string) bool {
-	rId, err := d.resolveId(id)
+	rID, err := d.resolveID(id)
 	if err != nil {
 		return false
 	}
-	result, err := hcsshim.LayerExists(d.info, rId)
+	result, err := hcsshim.LayerExists(d.info, rID)
 	if err != nil {
 		return false
 	}
 	return result
 }
 
+// Create creates a new layer with the given id.
 func (d *Driver) Create(id, parent string) error {
-	rPId, err := d.resolveId(parent)
+	rPId, err := d.resolveID(parent)
 	if err != nil {
 		return err
 	}
@@ -137,25 +167,16 @@ func (d *Driver) Create(id, parent string) error {
 		}
 	}
 
-	if _, err := os.Lstat(d.dir(parent)); err == nil {
-		if err := d.setLayerChain(id, layerChain); err != nil {
-			if err2 := hcsshim.DestroyLayer(d.info, id); err2 != nil {
-				logrus.Warnf("Failed to DestroyLayer %s: %s", id, err)
-			}
-			return err
-		}
-	} else if os.IsNotExist(err) {
-		// If the parent doesn't exist, this must be a special creation for an image
-		// registered at an alternate location. Use the parent id as the alternate ID.
-		if err := d.setId(id, parent); err != nil {
-			if err2 := hcsshim.DestroyLayer(d.info, id); err2 != nil {
-				logrus.Warnf("Failed to DestroyLayer %s: %s", id, err)
-			}
-			return err
-		}
-	} else {
+	if _, err := os.Lstat(d.dir(parent)); err != nil {
 		if err2 := hcsshim.DestroyLayer(d.info, id); err2 != nil {
-			logrus.Warnf("Failed to DestroyLayer %s: %s", id, err)
+			logrus.Warnf("Failed to DestroyLayer %s: %s", id, err2)
+		}
+		return fmt.Errorf("Cannot create layer with missing parent %s: %s", parent, err)
+	}
+
+	if err := d.setLayerChain(id, layerChain); err != nil {
+		if err2 := hcsshim.DestroyLayer(d.info, id); err2 != nil {
+			logrus.Warnf("Failed to DestroyLayer %s: %s", id, err2)
 		}
 		return err
 	}
@@ -163,21 +184,22 @@ func (d *Driver) Create(id, parent string) error {
 	return nil
 }
 
+// dir returns the absolute path to the layer.
 func (d *Driver) dir(id string) string {
 	return filepath.Join(d.info.HomeDir, filepath.Base(id))
 }
 
-// Remove unmounts and removes the dir information
+// Remove unmounts and removes the dir information.
 func (d *Driver) Remove(id string) error {
-	rId, err := d.resolveId(id)
+	rID, err := d.resolveID(id)
 	if err != nil {
 		return err
 	}
 
-	return hcsshim.DestroyLayer(d.info, rId)
+	return hcsshim.DestroyLayer(d.info, rID)
 }
 
-// Get returns the rootfs path for the id. This will mount the dir at it's given path
+// Get returns the rootfs path for the id. This will mount the dir at it's given path.
 func (d *Driver) Get(id, mountLabel string) (string, error) {
 	logrus.Debugf("WindowsGraphDriver Get() id %s mountLabel %s", id, mountLabel)
 	var dir string
@@ -185,38 +207,38 @@ func (d *Driver) Get(id, mountLabel string) (string, error) {
 	d.Lock()
 	defer d.Unlock()
 
-	rId, err := d.resolveId(id)
+	rID, err := d.resolveID(id)
 	if err != nil {
 		return "", err
 	}
 
 	// Getting the layer paths must be done outside of the lock.
-	layerChain, err := d.getLayerChain(rId)
+	layerChain, err := d.getLayerChain(rID)
 	if err != nil {
 		return "", err
 	}
 
-	if d.active[rId] == 0 {
-		if err := hcsshim.ActivateLayer(d.info, rId); err != nil {
+	if d.active[rID] == 0 {
+		if err := hcsshim.ActivateLayer(d.info, rID); err != nil {
 			return "", err
 		}
-		if err := hcsshim.PrepareLayer(d.info, rId, layerChain); err != nil {
-			if err2 := hcsshim.DeactivateLayer(d.info, rId); err2 != nil {
+		if err := hcsshim.PrepareLayer(d.info, rID, layerChain); err != nil {
+			if err2 := hcsshim.DeactivateLayer(d.info, rID); err2 != nil {
 				logrus.Warnf("Failed to Deactivate %s: %s", id, err)
 			}
 			return "", err
 		}
 	}
 
-	mountPath, err := hcsshim.GetLayerMountPath(d.info, rId)
+	mountPath, err := hcsshim.GetLayerMountPath(d.info, rID)
 	if err != nil {
-		if err2 := hcsshim.DeactivateLayer(d.info, rId); err2 != nil {
+		if err2 := hcsshim.DeactivateLayer(d.info, rID); err2 != nil {
 			logrus.Warnf("Failed to Deactivate %s: %s", id, err)
 		}
 		return "", err
 	}
 
-	d.active[rId]++
+	d.active[rID]++
 
 	// If the layer has a mount path, use that. Otherwise, use the
 	// folder path.
@@ -229,10 +251,11 @@ func (d *Driver) Get(id, mountLabel string) (string, error) {
 	return dir, nil
 }
 
+// Put adds a new layer to the driver.
 func (d *Driver) Put(id string) error {
 	logrus.Debugf("WindowsGraphDriver Put() id %s", id)
 
-	rId, err := d.resolveId(id)
+	rID, err := d.resolveID(id)
 	if err != nil {
 		return err
 	}
@@ -240,21 +263,22 @@ func (d *Driver) Put(id string) error {
 	d.Lock()
 	defer d.Unlock()
 
-	if d.active[rId] > 1 {
-		d.active[rId]--
-	} else if d.active[rId] == 1 {
-		if err := hcsshim.UnprepareLayer(d.info, rId); err != nil {
+	if d.active[rID] > 1 {
+		d.active[rID]--
+	} else if d.active[rID] == 1 {
+		if err := hcsshim.UnprepareLayer(d.info, rID); err != nil {
 			return err
 		}
-		if err := hcsshim.DeactivateLayer(d.info, rId); err != nil {
+		if err := hcsshim.DeactivateLayer(d.info, rID); err != nil {
 			return err
 		}
-		delete(d.active, rId)
+		delete(d.active, rID)
 	}
 
 	return nil
 }
 
+// Cleanup ensures the information the driver stores is properly removed.
 func (d *Driver) Cleanup() error {
 	return nil
 }
@@ -262,13 +286,13 @@ func (d *Driver) Cleanup() error {
 // Diff produces an archive of the changes between the specified
 // layer and its parent layer which may be "".
 func (d *Driver) Diff(id, parent string) (arch archive.Archive, err error) {
-	rId, err := d.resolveId(id)
+	rID, err := d.resolveID(id)
 	if err != nil {
 		return
 	}
 
 	// Getting the layer paths must be done outside of the lock.
-	layerChain, err := d.getLayerChain(rId)
+	layerChain, err := d.getLayerChain(rID)
 	if err != nil {
 		return
 	}
@@ -277,24 +301,24 @@ func (d *Driver) Diff(id, parent string) (arch archive.Archive, err error) {
 
 	// To support export, a layer must be activated but not prepared.
 	if d.info.Flavour == filterDriver {
-		if d.active[rId] == 0 {
-			if err = hcsshim.ActivateLayer(d.info, rId); err != nil {
+		if d.active[rID] == 0 {
+			if err = hcsshim.ActivateLayer(d.info, rID); err != nil {
 				d.Unlock()
 				return
 			}
 			defer func() {
-				if err := hcsshim.DeactivateLayer(d.info, rId); err != nil {
-					logrus.Warnf("Failed to Deactivate %s: %s", rId, err)
+				if err := hcsshim.DeactivateLayer(d.info, rID); err != nil {
+					logrus.Warnf("Failed to Deactivate %s: %s", rID, err)
 				}
 			}()
 		} else {
-			if err = hcsshim.UnprepareLayer(d.info, rId); err != nil {
+			if err = hcsshim.UnprepareLayer(d.info, rID); err != nil {
 				d.Unlock()
 				return
 			}
 			defer func() {
-				if err := hcsshim.PrepareLayer(d.info, rId, layerChain); err != nil {
-					logrus.Warnf("Failed to re-PrepareLayer %s: %s", rId, err)
+				if err := hcsshim.PrepareLayer(d.info, rID, layerChain); err != nil {
+					logrus.Warnf("Failed to re-PrepareLayer %s: %s", rID, err)
 				}
 			}()
 		}
@@ -302,7 +326,7 @@ func (d *Driver) Diff(id, parent string) (arch archive.Archive, err error) {
 
 	d.Unlock()
 
-	return d.exportLayer(rId, layerChain)
+	return d.exportLayer(rID, layerChain)
 }
 
 // Changes produces a list of changes between the specified layer
@@ -315,7 +339,7 @@ func (d *Driver) Changes(id, parent string) ([]archive.Change, error) {
 // layer with the specified id and parent, returning the size of the
 // new layer in bytes.
 func (d *Driver) ApplyDiff(id, parent string, diff archive.Reader) (size int64, err error) {
-	rPId, err := d.resolveId(parent)
+	rPId, err := d.resolveID(parent)
 	if err != nil {
 		return
 	}
@@ -325,7 +349,7 @@ func (d *Driver) ApplyDiff(id, parent string, diff archive.Reader) (size int64, 
 		logrus.Debugf("WindowsGraphDriver ApplyDiff: Start untar layer")
 		destination := d.dir(id)
 		destination = filepath.Dir(destination)
-		if size, err = chrootarchive.ApplyUncompressedLayer(destination, diff); err != nil {
+		if size, err = chrootarchive.ApplyUncompressedLayer(destination, diff, nil); err != nil {
 			return
 		}
 		logrus.Debugf("WindowsGraphDriver ApplyDiff: Untar time: %vs", time.Now().UTC().Sub(start).Seconds())
@@ -359,7 +383,7 @@ func (d *Driver) ApplyDiff(id, parent string, diff archive.Reader) (size int64, 
 // and its parent and returns the size in bytes of the changes
 // relative to its base filesystem directory.
 func (d *Driver) DiffSize(id, parent string) (size int64, err error) {
-	rPId, err := d.resolveId(parent)
+	rPId, err := d.resolveID(parent)
 	if err != nil {
 		return
 	}
@@ -378,6 +402,7 @@ func (d *Driver) DiffSize(id, parent string) (size int64, err error) {
 	return archive.ChangesSize(layerFs, changes), nil
 }
 
+// RestoreCustomImages adds any auto-detected OS specific images to the tag and graph store.
 func (d *Driver) RestoreCustomImages(tagger graphdriver.Tagger, recorder graphdriver.Recorder) (imageIDs []string, err error) {
 	strData, err := hcsshim.GetSharedBaseImages()
 	if err != nil {
@@ -415,13 +440,13 @@ func (d *Driver) RestoreCustomImages(tagger graphdriver.Tagger, recorder graphdr
 			img := &image.Image{
 				ID:            id,
 				Created:       imageData.CreatedTime,
-				DockerVersion: dockerversion.VERSION,
+				DockerVersion: dockerversion.Version,
 				Architecture:  runtime.GOARCH,
 				OS:            runtime.GOOS,
 				Size:          imageData.Size,
 			}
 
-			if err := recorder.Register(img, nil); err != nil {
+			if err := recorder.Register(customImageDescriptor{img}, nil); err != nil {
 				return nil, err
 			}
 
@@ -431,7 +456,7 @@ func (d *Driver) RestoreCustomImages(tagger graphdriver.Tagger, recorder graphdr
 			}
 
 			// Create the alternate ID file.
-			if err := d.setId(img.ID, folderName); err != nil {
+			if err := d.setID(img.ID, folderName); err != nil {
 				return nil, err
 			}
 
@@ -442,12 +467,14 @@ func (d *Driver) RestoreCustomImages(tagger graphdriver.Tagger, recorder graphdr
 	return imageIDs, nil
 }
 
+// GetMetadata returns custom driver information.
 func (d *Driver) GetMetadata(id string) (map[string]string, error) {
 	m := make(map[string]string)
 	m["dir"] = d.dir(id)
 	return m, nil
 }
 
+// exportLayer generates an archive from a layer based on the given ID.
 func (d *Driver) exportLayer(id string, parentLayerPaths []string) (arch archive.Archive, err error) {
 	layerFolder := d.dir(id)
 
@@ -485,6 +512,7 @@ func (d *Driver) exportLayer(id string, parentLayerPaths []string) (arch archive
 
 }
 
+// importLayer adds a new layer to the tag and graph store based on the given data.
 func (d *Driver) importLayer(id string, layerData archive.Reader, parentLayerPaths []string) (size int64, err error) {
 	layerFolder := d.dir(id)
 
@@ -514,8 +542,9 @@ func (d *Driver) importLayer(id string, layerData archive.Reader, parentLayerPat
 	return
 }
 
-func (d *Driver) resolveId(id string) (string, error) {
-	content, err := ioutil.ReadFile(filepath.Join(d.dir(id), "layerId"))
+// resolveID computes the layerID information based on the given id.
+func (d *Driver) resolveID(id string) (string, error) {
+	content, err := ioutil.ReadFile(filepath.Join(d.dir(id), "layerID"))
 	if os.IsNotExist(err) {
 		return id, nil
 	} else if err != nil {
@@ -524,14 +553,16 @@ func (d *Driver) resolveId(id string) (string, error) {
 	return string(content), nil
 }
 
-func (d *Driver) setId(id, altId string) error {
-	err := ioutil.WriteFile(filepath.Join(d.dir(id), "layerId"), []byte(altId), 0600)
+// setID stores the layerId in disk.
+func (d *Driver) setID(id, altID string) error {
+	err := ioutil.WriteFile(filepath.Join(d.dir(id), "layerId"), []byte(altID), 0600)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
+// getLayerChain returns the layer chain information.
 func (d *Driver) getLayerChain(id string) ([]string, error) {
 	jPath := filepath.Join(d.dir(id), "layerchain.json")
 	content, err := ioutil.ReadFile(jPath)
@@ -550,6 +581,7 @@ func (d *Driver) getLayerChain(id string) ([]string, error) {
 	return layerChain, nil
 }
 
+// setLayerChain stores the layer chain information in disk.
 func (d *Driver) setLayerChain(id string, chain []string) error {
 	content, err := json.Marshal(&chain)
 	if err != nil {

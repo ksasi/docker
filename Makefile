@@ -7,8 +7,8 @@ DOCKER_ENVS := \
 	-e BUILDFLAGS \
 	-e DOCKER_CLIENTONLY \
 	-e DOCKER_DEBUG \
-	-e DOCKER_EXECDRIVER \
 	-e DOCKER_EXPERIMENTAL \
+	-e DOCKER_REMAP_ROOT \
 	-e DOCKER_GRAPHDRIVER \
 	-e DOCKER_STORAGE_OPTS \
 	-e DOCKER_USERLANDPROXY \
@@ -28,12 +28,17 @@ GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 DOCKER_IMAGE := docker-dev$(if $(GIT_BRANCH),:$(GIT_BRANCH))
 DOCKER_DOCS_IMAGE := docker-docs$(if $(GIT_BRANCH),:$(GIT_BRANCH))
 
-DOCKER_RUN_DOCKER := docker run --rm -it --privileged $(DOCKER_ENVS) $(DOCKER_MOUNT) "$(DOCKER_IMAGE)"
+DOCKER_FLAGS := docker run --rm -i --privileged $(DOCKER_ENVS) $(DOCKER_MOUNT)
 
-DOCKER_RUN_DOCS := docker run --rm -it $(DOCS_MOUNT) -e AWS_S3_BUCKET -e NOCACHE
+# if this session isn't interactive, then we don't want to allocate a
+# TTY, which would fail, but if it is interactive, we do want to attach
+# so that the user can send e.g. ^C through.
+INTERACTIVE := $(shell [ -t 0 ] && echo 1 || echo 0)
+ifeq ($(INTERACTIVE), 1)
+	DOCKER_FLAGS += -t
+endif
 
-# for some docs workarounds (see below in "docs-build" target)
-GITCOMMIT := $(shell git rev-parse --short HEAD 2>/dev/null)
+DOCKER_RUN_DOCKER := $(DOCKER_FLAGS) "$(DOCKER_IMAGE)"
 
 default: binary
 
@@ -44,25 +49,25 @@ binary: build
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary
 
 cross: build
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary cross
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary binary cross
 
 deb: build
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary build-deb
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary build-deb
 
 rpm: build
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary build-rpm
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary build-rpm
 
 test: build
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary cross test-unit test-integration-cli test-docker-py
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary cross test-unit test-integration-cli test-docker-py
 
 test-unit: build
 	$(DOCKER_RUN_DOCKER) hack/make.sh test-unit
 
 test-integration-cli: build
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary test-integration-cli
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary test-integration-cli
 
 test-docker-py: build
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary test-docker-py
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary test-docker-py
 
 validate: build
 	$(DOCKER_RUN_DOCKER) hack/make.sh validate-dco validate-gofmt validate-pkg validate-lint validate-test validate-toml validate-vet
